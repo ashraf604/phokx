@@ -1,5 +1,5 @@
 # =================================================================
-# Simplified Analytics Bot - Python Version
+# Simplified Analytics Bot - Python Version (CLEANED)
 # =================================================================
 import asyncio
 import os
@@ -9,7 +9,8 @@ import json
 import logging
 import base64
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List
+from typing import Optional
+
 import aiohttp
 import websockets
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -64,7 +65,7 @@ async def get_config(config_id: str, default_value: dict = None):
     try:
         collection = await get_collection('configs')
         doc = await collection.find_one({'_id': config_id})
-        return doc['data'] if doc else default_value
+        return doc.get('data', default_value) if doc else default_value
     except Exception as e:
         logger.error(f"Error getting config {config_id}: {e}")
         return default_value
@@ -125,26 +126,25 @@ async def save_closed_trade(trade_data: dict):
         logger.error(f"Error saving closed trade: {e}")
 
 # =================================================================
-# OKX API ADAPTER (CORRECTED VERSION)
+# OKX API ADAPTER
 # =================================================================
 class OKXAdapter:
     def __init__(self, config: dict):
         self.base_url = "https://www.okx.com"
         self.config = config
         self.session: Optional[aiohttp.ClientSession] = None
-    
+
     async def init_session(self):
         if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession()
-    
+
     async def close_session(self):
         if self.session:
             await self.session.close()
-    
+
     def get_headers(self, method: str, path: str, body: str = ""):
         timestamp = datetime.utcnow().isoformat()[:-3] + 'Z'
         prehash = timestamp + method.upper() + path + body
-        
         sign_b64 = base64.b64encode(
             hmac.new(
                 self.config['api_secret'].encode('utf-8'),
@@ -152,7 +152,6 @@ class OKXAdapter:
                 hashlib.sha256
             ).digest()
         ).decode('utf-8')
-        
         return {
             'OK-ACCESS-KEY': self.config['api_key'],
             'OK-ACCESS-SIGN': sign_b64,
@@ -160,7 +159,7 @@ class OKXAdapter:
             'OK-ACCESS-PASSPHRASE': self.config['passphrase'],
             'Content-Type': 'application/json',
         }
-    
+
     async def get_market_prices(self):
         try:
             await self.init_session()
@@ -168,7 +167,7 @@ class OKXAdapter:
             async with self.session.get(url) as response:
                 data = await response.json()
                 if data.get('code') != '0':
-                    return {'error': f"فشل جلب الأسعار: {data.get('msg')}"}
+                    return {'error': f"Failed to fetch prices: {data.get('msg')}"}
                 prices = {}
                 for ticker in data.get('data', []):
                     if ticker['instId'].endswith('-USDT'):
@@ -183,8 +182,8 @@ class OKXAdapter:
                 return prices
         except Exception as e:
             logger.error(f"Error getting market prices: {e}")
-            return {'error': "خطأ في الاتصال"}
-    
+            return {'error': "Connection error"}
+
     async def get_portfolio(self, prices: dict):
         try:
             await self.init_session()
@@ -193,7 +192,7 @@ class OKXAdapter:
             async with self.session.get(f"{self.base_url}{path}", headers=headers) as response:
                 data = await response.json()
                 if data.get('code') != '0':
-                    return {'error': f"فشل جلب المحفظة: {data.get('msg')}"}
+                    return {'error': f"Failed to fetch portfolio: {data.get('msg')}"}
                 assets = []
                 total = 0
                 usdt_value = 0
@@ -218,8 +217,8 @@ class OKXAdapter:
                 return {'assets': assets, 'total': total, 'usdt_value': usdt_value}
         except Exception as e:
             logger.error(f"Error getting portfolio: {e}")
-            return {'error': "خطأ في الاتصال"}
-    
+            return {'error': "Connection error"}
+
     async def get_balance_for_comparison(self):
         try:
             await self.init_session()
@@ -238,6 +237,10 @@ class OKXAdapter:
         except Exception as e:
             logger.error(f"Error getting balance for comparison: {e}")
             return None
+
+# Global adapter instance
+okx_adapter = OKXAdapter(OKX_CONFIG)
+
 # =================================================================
 # CACHE
 # =================================================================
@@ -245,9 +248,8 @@ market_cache = {'data': None, 'timestamp': 0}
 
 async def get_cached_market_prices(ttl_ms: int = 15000):
     now = datetime.now().timestamp() * 1000
-    if market_cache['data'] and now - market_cache['timestamp'] < ttl_ms:
+    if market_cache.get('data') and now - market_cache.get('timestamp', 0) < ttl_ms:
         return market_cache['data']
-    
     data = await okx_adapter.get_market_prices()
     if 'error' not in data:
         market_cache['data'] = data
@@ -266,8 +268,10 @@ def format_number(num: float, decimals: int = 2) -> str:
 def format_smart(num: float) -> str:
     try:
         n = float(num)
-        if not float('inf') > abs(n) > 0:
+        if not (float('-inf') < n < float('inf')):
             return "0.00"
+        if n == 0:
+             return "0.00"
         if abs(n) >= 1:
             return f"{n:.2f}"
         if abs(n) >= 0.01:
@@ -286,9 +290,8 @@ def sanitize_markdown_v2(text) -> str:
     return text
 
 # =================================================================
-# FORMATTING FUNCTIONS (CORRECTED VERSION)
+# FORMATTING FUNCTIONS
 # =================================================================
-
 async def format_portfolio_msg(assets: list, total: float, capital: float) -> str:
     positions = await load_positions()
     usdt_asset = next((a for a in assets if a['asset'] == 'USDT'), {'value': 0})
@@ -299,253 +302,154 @@ async def format_portfolio_msg(assets: list, total: float, capital: float) -> st
     pnl_sign = '+' if pnl >= 0 else ''
     pnl_emoji = '🟢' if pnl >= 0 else '🔴'
 
-    # استخدم f""" هنا
-    caption = f"""🧾 *تقرير المحفظة*
-*القيمة الإجمالية:* `${sanitize_markdown_v2(format_number(total))}`"""
-
+    caption = f"🧾 *تقرير المحفظة*\n*القيمة الإجمالية:* `${sanitize_markdown_v2(format_number(total))}`"
     if capital > 0:
-        caption += f"""
-*رأس المال:* `${sanitize_markdown_v2(format_number(capital))}`
-*الربح/الخسارة:* {pnl_emoji} `${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl))}` \\(`{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`\\)"""
-
-    caption += f"""
-*السيولة:* 💵 {sanitize_markdown_v2(format_number(cash_percent))}% / 📈 {sanitize_markdown_v2(format_number(invested_percent))}%
-━━━━━━━━━━━━━━━━━━━━
-*الأصول:*"""
+        caption += f"\n*رأس المال:* `${sanitize_markdown_v2(format_number(capital))}`"
+        caption += f"\n*الربح/الخسارة:* {pnl_emoji} `${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl))}` \\(`{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`\\)"
+    caption += f"\n*السيولة:* 💵 {sanitize_markdown_v2(format_number(cash_percent))}% / 📈 {sanitize_markdown_v2(format_number(invested_percent))}%"
+    caption += f"\n━━━━━━━━━━━━━━━━━━━━\n*الأصول:*"
 
     display_assets = [a for a in assets if a['asset'] != 'USDT']
     for asset in display_assets:
         percent = (asset['value'] / total * 100) if total > 0 else 0
         position = positions.get(asset['asset'], {})
         daily_emoji = '🟢' if asset['change24h'] >= 0 else '🔴'
-        caption += f"""
-
-*{sanitize_markdown_v2(asset['asset'])}*
-  القيمة: `${sanitize_markdown_v2(format_number(asset['value']))}` \\({sanitize_markdown_v2(format_number(percent))}%\\)
-  السعر: `${sanitize_markdown_v2(format_smart(asset['price']))}` {daily_emoji} `{sanitize_markdown_v2(format_number(asset['change24h'] * 100))}%`"""
-
+        caption += f"\n\n*{sanitize_markdown_v2(asset['asset'])}*"
+        caption += f"\n  القيمة: `${sanitize_markdown_v2(format_number(asset['value']))}` \\({sanitize_markdown_v2(format_number(percent))}%\\)"
+        caption += f"\n  السعر: `${sanitize_markdown_v2(format_smart(asset['price']))}` {daily_emoji} `{sanitize_markdown_v2(format_number(asset['change24h'] * 100))}%`"
         if position.get('avg_buy_price', 0) > 0:
             asset_pnl = asset['value'] - (position['avg_buy_price'] * asset['amount'])
             cost = position['avg_buy_price'] * asset['amount']
             asset_pnl_percent = (asset_pnl / cost * 100) if cost > 0 else 0
             sign = '+' if asset_pnl >= 0 else ''
             emoji = '🟢' if asset_pnl >= 0 else '🔴'
-            caption += f"""
-  P/L: {emoji} `{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl))}` \\(`{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl_percent))}%`\\)"""
-
-    caption += f"""
-
-*USDT:* `${sanitize_markdown_v2(format_number(usdt_asset['value']))}` \\({sanitize_markdown_v2(format_number(cash_percent))}%\\)"""
+            caption += f"\n  P/L: {emoji} `{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl))}` \\(`{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl_percent))}%`\\)"
+    caption += f"\n\n*USDT:* `${sanitize_markdown_v2(format_number(usdt_asset['value']))}` \\({sanitize_markdown_v2(format_number(cash_percent))}%\\)"
     return caption
 
-# لقد أضفت دالة format_private_buy هنا لأنها كانت ناقصة
 def format_private_buy(details: dict) -> str:
-    asset = details['asset']
-    price = details['price']
-    amount_change = details['amount_change']
-    trade_value = details['trade_value']
-    new_asset_weight = details['new_asset_weight']
-    new_cash_percent = details['new_cash_percent']
-    
-    # استخدم f""" هنا
-    msg = f"""*🟢 شراء جديد \\| {sanitize_markdown_v2(asset)}*
-━━━━━━━━━━━━━━━━━━━━
-*السعر:* `${sanitize_markdown_v2(format_smart(price))}`
-*الكمية:* `{sanitize_markdown_v2(format_number(abs(amount_change), 6))}`
-*القيمة:* `${sanitize_markdown_v2(format_number(trade_value))}`
-*الوزن الجديد:* `{sanitize_markdown_v2(format_number(new_asset_weight))}%`
-*السيولة المتبقية:* `{sanitize_markdown_v2(format_number(new_cash_percent))}%`"""
-    return msg
+    return (f"*🟢 شراء جديد \\| {sanitize_markdown_v2(details['asset'])}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"*السعر:* `${sanitize_markdown_v2(format_smart(details['price']))}`\n"
+            f"*الكمية:* `{sanitize_markdown_v2(format_number(abs(details['amount_change']), 6))}`\n"
+            f"*القيمة:* `${sanitize_markdown_v2(format_number(details['trade_value']))}`\n"
+            f"*الوزن الجديد:* `{sanitize_markdown_v2(format_number(details['new_asset_weight']))}%`\n"
+            f"*السيولة المتبقية:* `{sanitize_markdown_v2(format_number(details['new_cash_percent']))}%`")
 
 def format_private_sell(details: dict) -> str:
-    asset = details['asset']
-    price = details['price']
-    amount_change = details['amount_change']
-    trade_value = details['trade_value']
-    new_asset_weight = details['new_asset_weight']
-    new_cash_percent = details['new_cash_percent']
-    
-    # استخدم f""" هنا
-    msg = f"""*🟠 بيع جزئي \\| {sanitize_markdown_v2(asset)}*
-━━━━━━━━━━━━━━━━━━━━
-*السعر:* `${sanitize_markdown_v2(format_smart(price))}`
-*الكمية:* `{sanitize_markdown_v2(format_number(abs(amount_change), 6))}`
-*القيمة:* `${sanitize_markdown_v2(format_number(trade_value))}`
-*الوزن الجديد:* `{sanitize_markdown_v2(format_number(new_asset_weight))}%`
-*السيولة الجديدة:* `{sanitize_markdown_v2(format_number(new_cash_percent))}%`"""
-    return msg
+    return (f"*🟠 بيع جزئي \\| {sanitize_markdown_v2(details['asset'])}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"*السعر:* `${sanitize_markdown_v2(format_smart(details['price']))}`\n"
+            f"*الكمية:* `{sanitize_markdown_v2(format_number(abs(details['amount_change']), 6))}`\n"
+            f"*القيمة:* `${sanitize_markdown_v2(format_number(details['trade_value']))}`\n"
+            f"*الوزن الجديد:* `{sanitize_markdown_v2(format_number(details['new_asset_weight']))}%`\n"
+            f"*السيولة الجديدة:* `{sanitize_markdown_v2(format_number(details['new_cash_percent']))}%`")
 
 def format_private_close(details: dict) -> str:
-    asset = details['asset']
-    avg_buy_price = details['avg_buy_price']
-    avg_sell_price = details['avg_sell_price']
-    pnl = details['pnl']
-    pnl_percent = details['pnl_percent']
-    duration_days = details['duration_days']
-    pnl_sign = '+' if pnl >= 0 else ''
-    emoji = '🟢' if pnl >= 0 else '🔴'
-    
-    # استخدم f""" هنا
-    msg = f"""*✅ إغلاق مركز \\| {sanitize_markdown_v2(asset)}*
-━━━━━━━━━━━━━━━━━━━━
-*سعر الشراء:* `${sanitize_markdown_v2(format_smart(avg_buy_price))}`
-*سعر البيع:* `${sanitize_markdown_v2(format_smart(avg_sell_price))}`
-*النتيجة:* {emoji} `${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl))}` \\(`{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`\\)
-*المدة:* `{sanitize_markdown_v2(format_number(duration_days, 1))} يوم`"""
-    return msg
+    pnl_sign = '+' if details['pnl'] >= 0 else ''
+    emoji = '🟢' if details['pnl'] >= 0 else '🔴'
+    return (f"*✅ إغلاق مركز \\| {sanitize_markdown_v2(details['asset'])}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"*سعر الشراء:* `${sanitize_markdown_v2(format_smart(details['avg_buy_price']))}`\n"
+            f"*سعر البيع:* `${sanitize_markdown_v2(format_smart(details['avg_sell_price']))}`\n"
+            f"*النتيجة:* {emoji} `${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(details['pnl']))}` \\(`{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(details['pnl_percent']))}%`\\)\n"
+            f"*المدة:* `{sanitize_markdown_v2(format_number(details['duration_days'], 1))} يوم`")
 
 def format_public_buy(details: dict) -> str:
-    asset = details['asset']
-    price = details['price']
-    
-    # استخدم f""" هنا
-    msg = f"""*💡 فرصة جديدة 🟢*
-تم فتح مركز في *{sanitize_markdown_v2(asset)}*
-السعر: `${sanitize_markdown_v2(format_smart(price))}`
-📢 @abusalamachart"""
-    return msg
+    return (f"*💡 فرصة جديدة 🟢*\n"
+            f"تم فتح مركز في *{sanitize_markdown_v2(details['asset'])}*\n"
+            f"السعر: `${sanitize_markdown_v2(format_smart(details['price']))}`\n"
+            f"📢 @abusalamachart")
 
 def format_public_sell(details: dict) -> str:
-    asset = details['asset']
-    price = details['price']
-    
-    # استخدم f""" هنا
-    msg = f"""*⚙️ جني أرباح جزئي 🟠*
-تم بيع جزء من *{sanitize_markdown_v2(asset)}*
-السعر: `${sanitize_markdown_v2(format_smart(price))}`
-📢 @abusalamachart"""
-    return msg
+    return (f"*⚙️ جني أرباح جزئي 🟠*\n"
+            f"تم بيع جزء من *{sanitize_markdown_v2(details['asset'])}*\n"
+            f"السعر: `${sanitize_markdown_v2(format_smart(details['price']))}`\n"
+            f"📢 @abusalamachart")
 
 def format_public_close(details: dict) -> str:
-    asset = details['asset']
-    pnl_percent = details['pnl_percent']
-    avg_buy_price = details['avg_buy_price']
-    avg_sell_price = details['avg_sell_price']
-    pnl_sign = '+' if pnl_percent >= 0 else ''
-    emoji = '🟢' if pnl_percent >= 0 else '🔴'
-    
-    # استخدم f""" هنا
-    msg = f"""*🏆 نتيجة نهائية {emoji}*
-*{sanitize_markdown_v2(asset)}*
-الدخول: `${sanitize_markdown_v2(format_smart(avg_buy_price))}`
-الخروج: `${sanitize_markdown_v2(format_smart(avg_sell_price))}`
-النتيجة: `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`
-📢 @abusalamachart"""
-    return msg
+    pnl_sign = '+' if details['pnl_percent'] >= 0 else ''
+    emoji = '🟢' if details['pnl_percent'] >= 0 else '🔴'
+    return (f"*🏆 نتيجة نهائية {emoji}*\n"
+            f"*{sanitize_markdown_v2(details['asset'])}*\n"
+            f"الدخول: `${sanitize_markdown_v2(format_smart(details['avg_buy_price']))}`\n"
+            f"الخروج: `${sanitize_markdown_v2(format_smart(details['avg_sell_price']))}`\n"
+            f"النتيجة: `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(details['pnl_percent']))}%`\n"
+            f"📢 @abusalamachart")
 
 def format_closed_trade_review(trade: dict, current_price: float) -> str:
-    asset = trade['asset']
-    avg_buy_price = trade['avg_buy_price']
-    avg_sell_price = trade['avg_sell_price']
-    quantity = trade['quantity']
-    actual_pnl = trade['pnl']
-    actual_pnl_percent = trade['pnl_percent']
-    
-    # استخدم f""" هنا
-    msg = f"""*🔍 مراجعة صفقة مغلقة \\| {sanitize_markdown_v2(asset)}*
-━━━━━━━━━━━━━━━━━━━━"""
-    
-    actual_pnl_sign = '+' if actual_pnl >= 0 else ''
-    actual_emoji = '🟢' if actual_pnl >= 0 else '🔴'
-    msg += f"""
-*الأداء الفعلي للصفقة:*
-  \\- *سعر الشراء:* `${sanitize_markdown_v2(format_smart(avg_buy_price))}`
-  \\- *سعر البيع:* `${sanitize_markdown_v2(format_smart(avg_sell_price))}`
-  \\- *النتيجة:* `{sanitize_markdown_v2(actual_pnl_sign)}{sanitize_markdown_v2(format_number(actual_pnl))}` {actual_emoji}
-  \\- *العائد:* `{sanitize_markdown_v2(actual_pnl_sign)}{sanitize_markdown_v2(format_number(actual_pnl_percent))}%`"""
-    
-    hypothetical_pnl = (current_price - avg_buy_price) * quantity
-    hypothetical_pnl_percent = ((hypothetical_pnl / (avg_buy_price * quantity)) * 100) if avg_buy_price > 0 else 0
+    actual_pnl_sign = '+' if trade['pnl'] >= 0 else ''
+    actual_emoji = '🟢' if trade['pnl'] >= 0 else '🔴'
+    hypothetical_pnl = (current_price - trade['avg_buy_price']) * trade['quantity']
+    hypothetical_pnl_percent = ((hypothetical_pnl / (trade['avg_buy_price'] * trade['quantity'])) * 100) if trade['avg_buy_price'] > 0 else 0
     hypothetical_pnl_sign = '+' if hypothetical_pnl >= 0 else ''
     hypothetical_emoji = '🟢' if hypothetical_pnl >= 0 else '🔴'
-    msg += f"""
-
-*لو بقيت الصفقة مفتوحة:*
-  \\- *السعر الحالي:* `${sanitize_markdown_v2(format_smart(current_price))}`
-  \\- *النتيجة الحالية:* `{sanitize_markdown_v2(hypothetical_pnl_sign)}{sanitize_markdown_v2(format_number(hypothetical_pnl))}` {hypothetical_emoji}
-  \\- *العائد الحالي:* `{sanitize_markdown_v2(hypothetical_pnl_sign)}{sanitize_markdown_v2(format_number(hypothetical_pnl_percent))}%`"""
-    
-    price_change_since_close = current_price - avg_sell_price
-    price_change_percent = ((price_change_since_close / avg_sell_price) * 100) if avg_sell_price > 0 else 0
+    price_change_since_close = current_price - trade['avg_sell_price']
+    price_change_percent = ((price_change_since_close / trade['avg_sell_price']) * 100) if trade['avg_sell_price'] > 0 else 0
     change_sign = '⬆️' if price_change_since_close >= 0 else '⬇️'
-    msg += f"""
-
-*تحليل قرار الخروج:*
-  \\- *حركة السعر منذ الإغلاق:* `{sanitize_markdown_v2(format_number(price_change_percent))}%` {change_sign}"""
     
-    if price_change_since_close > 0:
-        msg += f"""
-  \\- *التقييم:* 📈 السعر واصل الصعود، كان ممكن ربح أكبر"""
-    else:
-        msg += f"""
-  \\- *التقييم:* ✅ قرار ممتاز، السعر انخفض بعد الخروج"""
-    return msg
+    conclusion = ("*التقييم:* 📈 السعر واصل الصعود، كان ممكن ربح أكبر" 
+                  if price_change_since_close > 0 
+                  else "*التقييم:* ✅ قرار ممتاز، السعر انخفض بعد الخروج")
+
+    return (f"*🔍 مراجعة صفقة مغلقة \\| {sanitize_markdown_v2(trade['asset'])}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"*الأداء الفعلي للصفقة:*\n"
+            f"  \\- *سعر الشراء:* `${sanitize_markdown_v2(format_smart(trade['avg_buy_price']))}`\n"
+            f"  \\- *سعر البيع:* `${sanitize_markdown_v2(format_smart(trade['avg_sell_price']))}`\n"
+            f"  \\- *النتيجة:* `{sanitize_markdown_v2(actual_pnl_sign)}{sanitize_markdown_v2(format_number(trade['pnl']))}` {actual_emoji}\n"
+            f"  \\- *العائد:* `{sanitize_markdown_v2(actual_pnl_sign)}{sanitize_markdown_v2(format_number(trade['pnl_percent']))}%`\n\n"
+            f"*لو بقيت الصفقة مفتوحة:*\n"
+            f"  \\- *السعر الحالي:* `${sanitize_markdown_v2(format_smart(current_price))}`\n"
+            f"  \\- *النتيجة الحالية:* `{sanitize_markdown_v2(hypothetical_pnl_sign)}{sanitize_markdown_v2(format_number(hypothetical_pnl))}` {hypothetical_emoji}\n"
+            f"  \\- *العائد الحالي:* `{sanitize_markdown_v2(hypothetical_pnl_sign)}{sanitize_markdown_v2(format_number(hypothetical_pnl_percent))}%`\n\n"
+            f"*تحليل قرار الخروج:*\n"
+            f"  \\- *حركة السعر منذ الإغلاق:* `{sanitize_markdown_v2(format_number(price_change_percent))}%` {change_sign}\n"
+            f"  \\- {conclusion}")
 
 async def format_daily_copy_report() -> str:
     twenty_four_hours_ago = datetime.now() - timedelta(days=1)
     collection = await get_collection('trade_history')
-    
-    cursor = collection.find({
-        'closed_at': {'$gte': twenty_four_hours_ago}
-    })
+    cursor = collection.find({'closed_at': {'$gte': twenty_four_hours_ago}})
     closed_trades = await cursor.to_list(length=None)
-    
     if not closed_trades:
         return "📊 لم يتم إغلاق أي صفقات في الـ 24 ساعة الماضية\\."
-    
+
     today = datetime.now()
     date_string = today.strftime('%d/%m/%Y')
-    
-    report = f"""📊 تقرير النسخ اليومي – خلال الـ24 ساعة الماضية
-🗓 التاريخ: {date_string}
-"""
-    
+    report = f"📊 تقرير النسخ اليومي – خلال الـ24 ساعة الماضية\n🗓 التاريخ: {date_string}\n\n"
     total_pnl_weighted_sum = 0
     total_weight = 0
-    
     for trade in closed_trades:
         if 'pnl_percent' not in trade or 'entry_capital_percent' not in trade:
             continue
-        
         result_emoji = '🔼' if trade['pnl_percent'] >= 0 else '🔽'
         pnl_sign = '+' if trade['pnl_percent'] >= 0 else ''
-        report += f"""
-🔸 اسم العملة: {trade['asset']}
-🔸 نسبة الدخول من رأس المال: {format_number(trade['entry_capital_percent'])}%
-🔸 متوسط سعر الشراء: {format_smart(trade['avg_buy_price'])}
-🔸 سعر الخروج: {format_smart(trade['avg_sell_price'])}
-🔸 نسبة الخروج من الكمية: {format_number(trade.get('exit_quantity_percent', 100))}%
-🔸 النتيجة: {pnl_sign}{format_number(trade['pnl_percent'])}% {result_emoji}
-"""
+        report += (f"🔸 اسم العملة: {trade['asset']}\n"
+                   f"🔸 نسبة الدخول من رأس المال: {format_number(trade['entry_capital_percent'])}%\n"
+                   f"🔸 متوسط سعر الشراء: {format_smart(trade['avg_buy_price'])}\n"
+                   f"🔸 سعر الخروج: {format_smart(trade['avg_sell_price'])}\n"
+                   f"🔸 نسبة الخروج من الكمية: {format_number(trade.get('exit_quantity_percent', 100))}% \n"
+                   f"🔸 النتيجة: {pnl_sign}{format_number(trade['pnl_percent'])}% {result_emoji}\n\n")
+        if trade['entry_capital_percent'] > 0:
+            total_pnl_weighted_sum += trade['pnl_percent'] * trade['entry_capital_percent']
+            total_weight += trade['entry_capital_percent']
     
     total_pnl = total_pnl_weighted_sum / total_weight if total_weight > 0 else 0
     total_pnl_emoji = '📈' if total_pnl >= 0 else '📉'
     total_pnl_sign = '+' if total_pnl >= 0 else ''
-    
-    # -- التصحيح هنا --
-    # قمنا بتهريب الرابط بشكل يدوي لضمان التوافق مع تليجرام
     safe_link = "https://t\\.me/abusalamachart"
-    
-    report += f"""
-إجمالي الربح الحالي خدمة النسخ: {total_pnl_sign}{format_number(total_pnl, 2)}% {total_pnl_emoji}
-✍️ يمكنك الدخول في أي وقت تراه مناسب، الخدمة مفتوحة للجميع
-📢 قناة التحديثات الرسمية:
-@abusalamachart
-🌐 رابط النسخ المباشر:
-🏦 {safe_link}"""
-    
+    report += (f"إجمالي الربح الحالي خدمة النسخ: {total_pnl_sign}{format_number(total_pnl, 2)}% {total_pnl_emoji}\n\n"
+               f"✍️ يمكنك الدخول في أي وقت تراه مناسب، الخدمة مفتوحة للجميع\n\n"
+               f"📢 قناة التحديثات الرسمية:\n@abusalamachart\n\n"
+               f"🌐 رابط النسخ المباشر:\n🏦 {safe_link}")
     return report
+
 # =================================================================
 # POSITION TRACKING
 # =================================================================
-async def update_position_and_analyze(
-    asset: str,
-    amount_change: float,
-    price: float,
-    new_total_amount: float,
-    old_total_value: float
-) -> dict:
-    if not asset or price is None or price != price:  # NaN check
+async def update_position_and_analyze(asset: str, amount_change: float, price: float, new_total_amount: float, old_total_value: float) -> dict:
+    if not asset or price is None or not (float('-inf') < price < float('inf')):
         return {'analysis_result': None}
     
     positions = await load_positions()
@@ -555,7 +459,6 @@ async def update_position_and_analyze(
     if amount_change > 0:  # Buy
         trade_value = amount_change * price
         entry_capital_percent = (trade_value / old_total_value * 100) if old_total_value > 0 else 0
-        
         if not position:
             positions[asset] = {
                 'total_amount_bought': amount_change,
@@ -566,18 +469,18 @@ async def update_position_and_analyze(
                 'realized_value': 0,
                 'entry_capital_percent': entry_capital_percent
             }
-            position = positions[asset]
         else:
             position['total_amount_bought'] += amount_change
             position['total_cost'] += trade_value
             position['avg_buy_price'] = position['total_cost'] / position['total_amount_bought']
-        
         analysis_result['type'] = 'buy'
         
     elif amount_change < 0 and position:  # Sell
         sold_amount = abs(amount_change)
-        position['realized_value'] = position.get('realized_value', 0) + (sold_amount * price)
-        position['total_amount_sold'] = position.get('total_amount_sold', 0) + sold_amount
+        position.setdefault('realized_value', 0)
+        position.setdefault('total_amount_sold', 0)
+        position['realized_value'] += sold_amount * price
+        position['total_amount_sold'] += sold_amount
         
         if new_total_amount * price < 1:  # Close position
             avg_sell_price = position['realized_value'] / position['total_amount_sold'] if position['total_amount_sold'] > 0 else 0
@@ -585,31 +488,25 @@ async def update_position_and_analyze(
             invested_capital = position['total_cost']
             final_pnl = (avg_sell_price - position['avg_buy_price']) * quantity
             final_pnl_percent = (final_pnl / invested_capital * 100) if invested_capital > 0 else 0
-            
             close_date = datetime.now()
             open_date = datetime.fromisoformat(position['open_date'])
             duration_days = (close_date - open_date).total_seconds() / (24 * 60 * 60)
             
             close_data = {
-                'asset': asset,
-                'pnl': final_pnl,
-                'pnl_percent': final_pnl_percent,
-                'duration_days': duration_days,
-                'avg_buy_price': position['avg_buy_price'],
-                'avg_sell_price': avg_sell_price,
-                'quantity': quantity,
+                'asset': asset, 'pnl': final_pnl, 'pnl_percent': final_pnl_percent,
+                'duration_days': duration_days, 'avg_buy_price': position['avg_buy_price'],
+                'avg_sell_price': avg_sell_price, 'quantity': quantity,
                 'entry_capital_percent': position.get('entry_capital_percent', 0),
                 'exit_quantity_percent': 100
             }
-            
             await save_closed_trade(close_data)
             analysis_result = {'type': 'close', 'data': close_data}
             del positions[asset]
         else:
             analysis_result['type'] = 'sell'
-    
+            
     await save_positions(positions)
-    analysis_result['data']['position'] = positions.get(asset, position)
+    analysis_result['data']['position'] = position
     return {'analysis_result': analysis_result}
 
 # =================================================================
@@ -622,37 +519,30 @@ async def monitor_balance_changes(bot: Bot):
     if is_processing_balance:
         return
     is_processing_balance = True
-    
     try:
         previous_state = await load_balance_state()
         previous_balances = previous_state.get('balances', {})
         current_balance = await okx_adapter.get_balance_for_comparison()
-        
         if not current_balance:
-            raise Exception("فشل جلب الرصيد")
-        
+            raise Exception("Failed to fetch balance")
+
         prices = await get_cached_market_prices()
         if 'error' in prices:
-            raise Exception("فشل جلب الأسعار")
+            raise Exception("Failed to fetch prices")
         
         portfolio_data = await okx_adapter.get_portfolio(prices)
         if 'error' in portfolio_data:
             raise Exception(portfolio_data['error'])
-        
+
         new_assets = portfolio_data['assets']
         new_total_value = portfolio_data['total']
         new_usdt_value = portfolio_data['usdt_value']
-        
-        # Initial setup
+
         if not previous_balances:
-            await save_balance_state({
-                'balances': current_balance,
-                'total_value': new_total_value
-            })
+            await save_balance_state({'balances': current_balance, 'total_value': new_total_value})
             is_processing_balance = False
             return
         
-        # Check for changes
         all_assets = set(list(previous_balances.keys()) + list(current_balance.keys()))
         state_needs_update = False
         
@@ -663,22 +553,19 @@ async def monitor_balance_changes(bot: Bot):
             prev_amount = previous_balances.get(asset, 0)
             curr_amount = current_balance.get(asset, 0)
             difference = curr_amount - prev_amount
-            
             price_data = prices.get(f"{asset}-USDT", {})
+            
             if not price_data or abs(difference * price_data.get('price', 0)) < 1:
                 continue
-            
+
             state_needs_update = True
-            
             old_total_value = previous_state.get('total_value', 0)
-            result = await update_position_and_analyze(
-                asset, difference, price_data['price'], curr_amount, old_total_value
-            )
+            result = await update_position_and_analyze(asset, difference, price_data['price'], curr_amount, old_total_value)
             analysis_result = result['analysis_result']
             
             if analysis_result['type'] == 'none':
                 continue
-            
+                
             trade_value = abs(difference) * price_data['price']
             new_asset_data = next((a for a in new_assets if a['asset'] == asset), None)
             new_asset_value = new_asset_data['value'] if new_asset_data else 0
@@ -686,69 +573,36 @@ async def monitor_balance_changes(bot: Bot):
             new_cash_percent = (new_usdt_value / new_total_value * 100) if new_total_value > 0 else 0
             
             base_details = {
-                'asset': asset,
-                'price': price_data['price'],
-                'amount_change': difference,
-                'trade_value': trade_value,
-                'old_total_value': old_total_value,
-                'new_asset_weight': new_asset_weight,
-                'new_usdt_value': new_usdt_value,
-                'new_cash_percent': new_cash_percent,
-                'position': analysis_result['data'].get('position', {})
+                'asset': asset, 'price': price_data['price'], 'amount_change': difference,
+                'trade_value': trade_value, 'old_total_value': old_total_value,
+                'new_asset_weight': new_asset_weight, 'new_usdt_value': new_usdt_value,
+                'new_cash_percent': new_cash_percent, 'position': analysis_result['data'].get('position', {})
             }
-            
             settings = await load_settings()
             
             if analysis_result['type'] == 'buy':
                 private_message = format_private_buy(base_details)
                 public_message = format_public_buy(base_details)
-                await bot.send_message(
-                    AUTHORIZED_USER_ID,
-                    private_message,
-                    parse_mode='MarkdownV2'
-                )
+                await bot.send_message(AUTHORIZED_USER_ID, private_message, parse_mode='MarkdownV2')
                 if settings.get('auto_post_to_channel', False):
-                    await bot.send_message(
-                        TARGET_CHANNEL_ID,
-                        public_message,
-                        parse_mode='MarkdownV2'
-                    )
+                    await bot.send_message(TARGET_CHANNEL_ID, public_message, parse_mode='MarkdownV2')
             
             elif analysis_result['type'] == 'sell':
                 private_message = format_private_sell(base_details)
                 public_message = format_public_sell(base_details)
-                await bot.send_message(
-                    AUTHORIZED_USER_ID,
-                    private_message,
-                    parse_mode='MarkdownV2'
-                )
+                await bot.send_message(AUTHORIZED_USER_ID, private_message, parse_mode='MarkdownV2')
                 if settings.get('auto_post_to_channel', False):
-                    await bot.send_message(
-                        TARGET_CHANNEL_ID,
-                        public_message,
-                        parse_mode='MarkdownV2'
-                    )
-            
+                    await bot.send_message(TARGET_CHANNEL_ID, public_message, parse_mode='MarkdownV2')
+
             elif analysis_result['type'] == 'close':
                 private_message = format_private_close(analysis_result['data'])
                 public_message = format_public_close(analysis_result['data'])
                 if settings.get('auto_post_to_channel', False):
-                    await bot.send_message(
-                        TARGET_CHANNEL_ID,
-                        public_message,
-                        parse_mode='MarkdownV2'
-                    )
-                await bot.send_message(
-                    AUTHORIZED_USER_ID,
-                    private_message,
-                    parse_mode='MarkdownV2'
-                )
-        
+                    await bot.send_message(TARGET_CHANNEL_ID, public_message, parse_mode='MarkdownV2')
+                await bot.send_message(AUTHORIZED_USER_ID, private_message, parse_mode='MarkdownV2')
+
         if state_needs_update:
-            await save_balance_state({
-                'balances': current_balance,
-                'total_value': new_total_value
-            })
+            await save_balance_state({'balances': current_balance, 'total_value': new_total_value})
     
     except Exception as e:
         logger.error(f"Error in monitor_balance_changes: {e}")
@@ -761,13 +615,10 @@ async def monitor_balance_changes(bot: Bot):
 async def run_daily_jobs():
     try:
         prices = await get_cached_market_prices()
-        if 'error' in prices:
-            return
-        
+        if 'error' in prices: return
         portfolio_data = await okx_adapter.get_portfolio(prices)
-        if 'error' in portfolio_data:
-            return
-        
+        if 'error' in portfolio_data: return
+
         total = portfolio_data['total']
         history = await load_history()
         date = datetime.now().strftime('%Y-%m-%d')
@@ -786,38 +637,18 @@ async def run_daily_jobs():
     except Exception as e:
         logger.error(f"Error in run_daily_jobs: {e}")
 
-# =================================================================
-# استبدل هذه الدالة بالكامل
-# =================================================================
 async def run_daily_report_job(bot: Bot):
     try:
         logger.info("Running daily report job...")
         report_text = await format_daily_copy_report()
         
-        # --- هذا هو التعديل ---
-        # لقد أزلنا دالة sanitize_markdown_v2 من هنا
-        # لأن التقرير أصبح جاهزًا ومعالجًا بالفعل من الدالة السابقة
-        
         if "لم يتم إغلاق أي صفقات" in report_text:
-            await bot.send_message(
-                AUTHORIZED_USER_ID,
-                report_text,  # نستخدم النص مباشرة
-                parse_mode='MarkdownV2'
-            )
+            await bot.send_message(AUTHORIZED_USER_ID, report_text, parse_mode='MarkdownV2')
         else:
-            await bot.send_message(
-                TARGET_CHANNEL_ID,
-                report_text,  # نستخدم النص مباشرة
-                parse_mode='MarkdownV2'
-            )
-            await bot.send_message(
-                AUTHORIZED_USER_ID,
-                "✅ تم إرسال تقرير النسخ اليومي إلى القناة بنجاح\\.",
-                parse_mode='MarkdownV2'
-            )
+            await bot.send_message(TARGET_CHANNEL_ID, report_text, parse_mode='MarkdownV2')
+            await bot.send_message(AUTHORIZED_USER_ID, "✅ تم إرسال تقرير النسخ اليومي إلى القناة بنجاح\\.", parse_mode='MarkdownV2')
     except Exception as e:
         logger.error(f"Error in run_daily_report_job: {e}")
-        # لا نرسل رسالة خطأ هنا لتجنب حلقة أخطاء إذا كانت المشكلة في الإرسال نفسه
 
 # =================================================================
 # WEBSOCKET
@@ -826,35 +657,22 @@ balance_check_debounce_timer = None
 
 async def connect_to_okx_socket(bot: Bot):
     uri = 'wss://ws.okx.com:8443/ws/v5/private'
-    
     while True:
         try:
             async with websockets.connect(uri) as ws:
                 logger.info("OKX WebSocket Connected")
-                
-                # Authenticate
                 timestamp = str(int(datetime.now().timestamp()))
                 prehash = timestamp + 'GET' + '/users/self/verify'
                 sign = base64.b64encode(
-                    hmac.new(
-                        OKX_CONFIG['api_secret'].encode('utf-8'),
-                        prehash.encode('utf-8'),
-                        hashlib.sha256
-                    ).digest()
+                    hmac.new(OKX_CONFIG['api_secret'].encode('utf-8'), prehash.encode('utf-8'), hashlib.sha256).digest()
                 ).decode('utf-8')
                 
                 auth_msg = {
                     "op": "login",
-                    "args": [{
-                        "apiKey": OKX_CONFIG['api_key'],
-                        "passphrase": OKX_CONFIG['passphrase'],
-                        "timestamp": timestamp,
-                        "sign": sign,
-                    }]
+                    "args": [{"apiKey": OKX_CONFIG['api_key'], "passphrase": OKX_CONFIG['passphrase'], "timestamp": timestamp, "sign": sign}]
                 }
                 await ws.send(json.dumps(auth_msg))
                 
-                # Ping task
                 async def ping_task():
                     while True:
                         try:
@@ -862,37 +680,24 @@ async def connect_to_okx_socket(bot: Bot):
                             await asyncio.sleep(25)
                         except:
                             break
-                
                 ping = asyncio.create_task(ping_task())
                 
-                # Message handler
                 async for message in ws:
-                    if message == 'pong':
-                        continue
-                    
+                    if message == 'pong': continue
                     try:
                         data = json.loads(message)
-                        
                         if data.get('event') == 'login' and data.get('code') == '0':
                             logger.info("WebSocket Authenticated")
-                            subscribe_msg = {
-                                "op": "subscribe",
-                                "args": [{"channel": "account"}]
-                            }
+                            subscribe_msg = {"op": "subscribe", "args": [{"channel": "account"}]}
                             await ws.send(json.dumps(subscribe_msg))
-                        
                         if data.get('arg', {}).get('channel') == 'account' and data.get('data'):
                             global balance_check_debounce_timer
                             if balance_check_debounce_timer:
                                 balance_check_debounce_timer.cancel()
-                            balance_check_debounce_timer = asyncio.create_task(
-                                debounced_balance_check(bot)
-                            )
+                            balance_check_debounce_timer = asyncio.create_task(debounced_balance_check(bot))
                     except Exception as e:
                         logger.error(f"Error processing WebSocket message: {e}")
-                
                 ping.cancel()
-        
         except Exception as e:
             logger.error(f"WebSocket error: {e}")
             await asyncio.sleep(5)
@@ -907,12 +712,10 @@ async def debounced_balance_check(bot: Bot):
 class Form(StatesGroup):
     set_capital = State()
 
-# Create bot and dispatcher
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# Keyboards
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📊 المحفظة"), KeyboardButton(text="🔍 مراجعة الصفقات")],
@@ -921,144 +724,80 @@ main_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# Authorization middleware
 @dp.message.middleware()
 async def auth_middleware(handler, event, data):
     if event.from_user.id == AUTHORIZED_USER_ID:
         return await handler(event, data)
     return
 
-# Start command
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await message.answer(
-        "🤖 *أهلاً بك في البوت*",
-        parse_mode='MarkdownV2',
-        reply_markup=main_keyboard
-    )
+    await message.answer("🤖 *أهلاً بك في البوت*", parse_mode='MarkdownV2', reply_markup=main_keyboard)
 
-# Portfolio handler
 @dp.message(F.text == "📊 المحفظة")
 async def show_portfolio(message: types.Message):
     loading = await message.answer("⏳ جاري التحميل...")
-    
     try:
         prices = await get_cached_market_prices()
-        if 'error' in prices:
-            raise Exception(prices['error'])
-        
+        if 'error' in prices: raise Exception(prices['error'])
         capital = await load_capital()
         portfolio_data = await okx_adapter.get_portfolio(prices)
-        if 'error' in portfolio_data:
-            raise Exception(portfolio_data['error'])
-        
-        caption = await format_portfolio_msg(
-            portfolio_data['assets'],
-            portfolio_data['total'],
-            capital
-        )
-        
+        if 'error' in portfolio_data: raise Exception(portfolio_data['error'])
+        caption = await format_portfolio_msg(portfolio_data['assets'], portfolio_data['total'], capital)
         await loading.edit_text(caption, parse_mode='MarkdownV2')
     except Exception as e:
-        await loading.edit_text(
-            f"❌ خطأ: {sanitize_markdown_v2(str(e))}",
-            parse_mode='MarkdownV2'
-        )
+        await loading.edit_text(f"❌ خطأ: {sanitize_markdown_v2(str(e))}", parse_mode='MarkdownV2')
 
-# Trade review handler
 @dp.message(F.text == "🔍 مراجعة الصفقات")
 async def review_trades(message: types.Message):
     loading = await message.answer("⏳ جاري جلب الصفقات المغلقة...")
-    
     try:
         collection = await get_collection('trade_history')
         cursor = collection.find({'quantity': {'$exists': True}}).sort('closed_at', -1).limit(5)
         closed_trades = await cursor.to_list(length=5)
-        
         if not closed_trades:
-            await loading.edit_text(
-                "ℹ️ لا يوجد سجل صفقات مغلقة لمراجعتها\\.",
-                parse_mode='MarkdownV2'
-            )
+            await loading.edit_text("ℹ️ لا يوجد سجل صفقات مغلقة لمراجعتها\\.", parse_mode='MarkdownV2')
             return
-        
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text=f"{trade['asset']} | ${format_smart(trade['avg_sell_price'])}",
-                callback_data=f"review_{trade['_id']}"
-            )]
+            [InlineKeyboardButton(text=f"{trade['asset']} | ${format_smart(trade['avg_sell_price'])}", callback_data=f"review_{trade['_id']}")]
             for trade in closed_trades
         ])
-        
-        await loading.edit_text(
-            "👇 *اختر صفقة من القائمة لمراجعتها:*",
-            parse_mode='MarkdownV2',
-            reply_markup=keyboard
-        )
+        await loading.edit_text("👇 *اختر صفقة من القائمة لمراجعتها:*", parse_mode='MarkdownV2', reply_markup=keyboard)
     except Exception as e:
-        await loading.edit_text(
-            f"❌ خطأ: {sanitize_markdown_v2(str(e))}",
-            parse_mode='MarkdownV2'
-        )
+        await loading.edit_text(f"❌ خطأ: {sanitize_markdown_v2(str(e))}", parse_mode='MarkdownV2')
 
-# Settings handler
 @dp.message(F.text == "⚙️ الإعدادات")
 async def show_settings(message: types.Message):
     settings = await load_settings()
-    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="💰 تعيين رأس المال", callback_data="set_capital"),
-            InlineKeyboardButton(
-                text=f"🚀 النشر: {'✅' if settings.get('auto_post_to_channel') else '❌'}",
-                callback_data="toggle_post"
-            )
+            InlineKeyboardButton(text=f"🚀 النشر: {'✅' if settings.get('auto_post_to_channel') else '❌'}", callback_data="toggle_post")
         ],
         [InlineKeyboardButton(text="📊 إرسال تقرير النسخ", callback_data="send_report")]
     ])
-    
-    await message.answer(
-        "⚙️ *الإعدادات*",
-        parse_mode='MarkdownV2',
-        reply_markup=keyboard
-    )
+    await message.answer("⚙️ *الإعدادات*", parse_mode='MarkdownV2', reply_markup=keyboard)
 
-# Callback handlers
 @dp.callback_query(F.data.startswith("review_"))
 async def handle_trade_review(callback: types.CallbackQuery):
     await callback.answer()
     trade_id = callback.data.split('_')[1]
-    
     await callback.message.edit_text("⏳ جاري تحليل الصفقة...")
-    
     try:
         collection = await get_collection('trade_history')
         trade = await collection.find_one({'_id': trade_id})
-        
         if not trade or 'quantity' not in trade:
-            await callback.message.edit_text(
-                "❌ لم يتم العثور على الصفقة\\.",
-                parse_mode='MarkdownV2'
-            )
+            await callback.message.edit_text("❌ لم يتم العثور على الصفقة\\.", parse_mode='MarkdownV2')
             return
-        
         prices = await get_cached_market_prices()
         current_price = prices.get(f"{trade['asset']}-USDT", {}).get('price')
-        
         if not current_price:
-            await callback.message.edit_text(
-                f"❌ تعذر جلب السعر الحالي لـ {sanitize_markdown_v2(trade['asset'])}\\.",
-                parse_mode='MarkdownV2'
-            )
+            await callback.message.edit_text(f"❌ تعذر جلب السعر الحالي لـ {sanitize_markdown_v2(trade['asset'])}\\.", parse_mode='MarkdownV2')
             return
-        
         review_message = format_closed_trade_review(trade, current_price)
         await callback.message.edit_text(review_message, parse_mode='MarkdownV2')
     except Exception as e:
-        await callback.message.edit_text(
-            f"❌ خطأ: {sanitize_markdown_v2(str(e))}",
-            parse_mode='MarkdownV2'
-        )
+        await callback.message.edit_text(f"❌ خطأ: {sanitize_markdown_v2(str(e))}", parse_mode='MarkdownV2')
 
 @dp.callback_query(F.data == "set_capital")
 async def set_capital_callback(callback: types.CallbackQuery, state: FSMContext):
@@ -1070,14 +809,9 @@ async def set_capital_callback(callback: types.CallbackQuery, state: FSMContext)
 async def process_capital(message: types.Message, state: FSMContext):
     try:
         amount = float(message.text)
-        if amount < 0:
-            raise ValueError()
-        
+        if amount < 0: raise ValueError()
         await save_capital(amount)
-        await message.answer(
-            f"✅ تم تحديث رأس المال إلى: `${sanitize_markdown_v2(format_number(amount))}`",
-            parse_mode='MarkdownV2'
-        )
+        await message.answer(f"✅ تم تحديث رأس المال إلى: `${sanitize_markdown_v2(format_number(amount))}`", parse_mode='MarkdownV2')
     except ValueError:
         await message.answer("❌ مبلغ غير صالح")
     finally:
@@ -1086,34 +820,24 @@ async def process_capital(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "toggle_post")
 async def toggle_post_callback(callback: types.CallbackQuery):
     await callback.answer()
-    
     settings = await load_settings()
     settings['auto_post_to_channel'] = not settings.get('auto_post_to_channel', False)
     await save_settings(settings)
-    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="💰 تعيين رأس المال", callback_data="set_capital"),
-            InlineKeyboardButton(
-                text=f"🚀 النشر: {'✅' if settings['auto_post_to_channel'] else '❌'}",
-                callback_data="toggle_post"
-            )
+            InlineKeyboardButton(text=f"🚀 النشر: {'✅' if settings['auto_post_to_channel'] else '❌'}", callback_data="toggle_post")
         ],
         [InlineKeyboardButton(text="📊 إرسال تقرير النسخ", callback_data="send_report")]
     ])
-    
     await callback.message.edit_reply_markup(reply_markup=keyboard)
 
 @dp.callback_query(F.data == "send_report")
 async def send_report_callback(callback: types.CallbackQuery):
     await callback.answer()
     await callback.message.edit_text("⏳ جاري إنشاء التقرير اليومي...")
-    
     await run_daily_report_job(bot)
-    await callback.message.edit_text(
-        "✅ تم إرسال التقرير بنجاح\\!",
-        parse_mode='MarkdownV2'
-    )
+    await callback.message.edit_text("✅ تم إرسال التقرير بنجاح\\!", parse_mode='MarkdownV2')
 
 # =================================================================
 # FASTAPI SERVER
@@ -1125,10 +849,9 @@ async def healthcheck():
     return {"status": "OK"}
 
 # =================================================================
-# MAIN (CORRECTED VERSION)
+# MAIN
 # =================================================================
 async def main():
-    # إدارة جلسة الاتصال لـ okx_adapter
     await okx_adapter.init_session()
 
     # Start background tasks
@@ -1159,9 +882,17 @@ async def main():
     )
     
     try:
-        # Start polling
         await dp.start_polling(bot)
     finally:
-        # إغلاق الجلسة عند إيقاف البوت
         await okx_adapter.close_session()
         await bot.session.close()
+
+
+if __name__ == "__main__":
+    import threading
+    threading.Thread(
+        target=lambda: uvicorn.run(app, host="0.0.0.0", port=PORT),
+        daemon=True
+    ).start()
+    
+    asyncio.run(main())
