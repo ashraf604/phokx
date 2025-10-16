@@ -7,6 +7,7 @@ import hmac
 import hashlib
 import json
 import logging
+import base64
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 import aiohttp
@@ -140,33 +141,27 @@ class OKXAdapter:
         if self.session:
             await self.session.close()
     
-    def get_headers(self, method: str, path: str, body: str = ""):
-        timestamp = datetime.utcnow().isoformat()[:-3] + 'Z'
-        prehash = timestamp + method.upper() + path + body
-        sign = hmac.new(
+    # استبدل هذه الدالة بالكامل
+  def get_headers(self, method: str, path: str, body: str = ""):
+    timestamp = datetime.utcnow().isoformat()[:-3] + 'Z'
+    prehash = timestamp + method.upper() + path + body
+    
+    # استخدم base64 الذي قمنا باستيراده في الأعلى
+    sign_b64 = base64.b64encode(
+        hmac.new(
             self.config['api_secret'].encode('utf-8'),
             prehash.encode('utf-8'),
-            hashlib.sha256
+            hashlib.sha26
         ).digest()
-        sign_b64 = sign.hex() if isinstance(sign, bytes) else sign
-        
-        # Fix: OKX requires base64, not hex
-        import base64
-        sign_b64 = base64.b64encode(
-            hmac.new(
-                self.config['api_secret'].encode('utf-8'),
-                prehash.encode('utf-8'),
-                hashlib.sha256
-            ).digest()
-        ).decode('utf-8')
-        
-        return {
-            'OK-ACCESS-KEY': self.config['api_key'],
-            'OK-ACCESS-SIGN': sign_b64,
-            'OK-ACCESS-TIMESTAMP': timestamp,
-            'OK-ACCESS-PASSPHRASE': self.config['passphrase'],
-            'Content-Type': 'application/json',
-        }
+    ).decode('utf-8')
+    
+    return {
+        'OK-ACCESS-KEY': self.config['api_key'],
+        'OK-ACCESS-SIGN': sign_b64,
+        'OK-ACCESS-TIMESTAMP': timestamp,
+        'OK-ACCESS-PASSPHRASE': self.config['passphrase'],
+        'Content-Type': 'application/json',
+    }
     
     async def get_market_prices(self):
         try:
