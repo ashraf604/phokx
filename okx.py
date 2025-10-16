@@ -125,7 +125,7 @@ async def save_closed_trade(trade_data: dict):
         logger.error(f"Error saving closed trade: {e}")
 
 # =================================================================
-# OKX API ADAPTER
+# OKX API ADAPTER (CORRECTED VERSION)
 # =================================================================
 class OKXAdapter:
     def __init__(self, config: dict):
@@ -134,34 +134,32 @@ class OKXAdapter:
         self.session: Optional[aiohttp.ClientSession] = None
     
     async def init_session(self):
-        if self.session is None:
+        if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession()
     
     async def close_session(self):
         if self.session:
             await self.session.close()
     
-    # استبدل هذه الدالة بالكامل
-  def get_headers(self, method: str, path: str, body: str = ""):
-    timestamp = datetime.utcnow().isoformat()[:-3] + 'Z'
-    prehash = timestamp + method.upper() + path + body
-    
-    # استخدم base64 الذي قمنا باستيراده في الأعلى
-    sign_b64 = base64.b64encode(
-        hmac.new(
-            self.config['api_secret'].encode('utf-8'),
-            prehash.encode('utf-8'),
-            hashlib.sha26
-        ).digest()
-    ).decode('utf-8')
-    
-    return {
-        'OK-ACCESS-KEY': self.config['api_key'],
-        'OK-ACCESS-SIGN': sign_b64,
-        'OK-ACCESS-TIMESTAMP': timestamp,
-        'OK-ACCESS-PASSPHRASE': self.config['passphrase'],
-        'Content-Type': 'application/json',
-    }
+    def get_headers(self, method: str, path: str, body: str = ""):
+        timestamp = datetime.utcnow().isoformat()[:-3] + 'Z'
+        prehash = timestamp + method.upper() + path + body
+        
+        sign_b64 = base64.b64encode(
+            hmac.new(
+                self.config['api_secret'].encode('utf-8'),
+                prehash.encode('utf-8'),
+                hashlib.sha256
+            ).digest()
+        ).decode('utf-8')
+        
+        return {
+            'OK-ACCESS-KEY': self.config['api_key'],
+            'OK-ACCESS-SIGN': sign_b64,
+            'OK-ACCESS-TIMESTAMP': timestamp,
+            'OK-ACCESS-PASSPHRASE': self.config['passphrase'],
+            'Content-Type': 'application/json',
+        }
     
     async def get_market_prices(self):
         try:
@@ -169,10 +167,8 @@ class OKXAdapter:
             url = f"{self.base_url}/api/v5/market/tickers?instType=SPOT"
             async with self.session.get(url) as response:
                 data = await response.json()
-                
                 if data.get('code') != '0':
                     return {'error': f"فشل جلب الأسعار: {data.get('msg')}"}
-                
                 prices = {}
                 for ticker in data.get('data', []):
                     if ticker['instId'].endswith('-USDT'):
@@ -194,34 +190,22 @@ class OKXAdapter:
             await self.init_session()
             path = "/api/v5/account/balance"
             headers = self.get_headers("GET", path)
-            
-            async with self.session.get(
-                f"{self.base_url}{path}",
-                headers=headers
-            ) as response:
+            async with self.session.get(f"{self.base_url}{path}", headers=headers) as response:
                 data = await response.json()
-                
                 if data.get('code') != '0':
                     return {'error': f"فشل جلب المحفظة: {data.get('msg')}"}
-                
                 assets = []
                 total = 0
                 usdt_value = 0
-                
                 for asset_data in data['data'][0]['details']:
                     amount = float(asset_data['eq'])
                     if amount > 0:
                         inst_id = f"{asset_data['ccy']}-USDT"
-                        price_data = prices.get(inst_id, {
-                            'price': 1 if asset_data['ccy'] == 'USDT' else 0,
-                            'change24h': 0
-                        })
+                        price_data = prices.get(inst_id, {'price': 1 if asset_data['ccy'] == 'USDT' else 0, 'change24h': 0})
                         value = amount * price_data['price']
                         total += value
-                        
                         if asset_data['ccy'] == 'USDT':
                             usdt_value = value
-                        
                         if value >= 1:
                             assets.append({
                                 'asset': asset_data['ccy'],
@@ -230,7 +214,6 @@ class OKXAdapter:
                                 'amount': amount,
                                 'change24h': price_data['change24h']
                             })
-                
                 assets.sort(key=lambda x: x['value'], reverse=True)
                 return {'assets': assets, 'total': total, 'usdt_value': usdt_value}
         except Exception as e:
@@ -242,30 +225,19 @@ class OKXAdapter:
             await self.init_session()
             path = "/api/v5/account/balance"
             headers = self.get_headers("GET", path)
-            
-            async with self.session.get(
-                f"{self.base_url}{path}",
-                headers=headers
-            ) as response:
+            async with self.session.get(f"{self.base_url}{path}", headers=headers) as response:
                 data = await response.json()
-                
                 if data.get('code') != '0':
                     return None
-                
                 balances = {}
                 for asset_data in data['data'][0]['details']:
                     amount = float(asset_data['eq'])
                     if amount > 0:
                         balances[asset_data['ccy']] = amount
-                
                 return balances
         except Exception as e:
             logger.error(f"Error getting balance for comparison: {e}")
             return None
-
-# Global adapter instance
-okx_adapter = OKXAdapter(OKX_CONFIG)
-
 # =================================================================
 # CACHE
 # =================================================================
