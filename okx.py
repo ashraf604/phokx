@@ -484,7 +484,10 @@ def format_closed_trade_review(trade: dict, current_price: float) -> str:
 async def format_daily_copy_report() -> str:
     twenty_four_hours_ago = datetime.now() - timedelta(days=1)
     collection = await get_collection('trade_history')
-    cursor = collection.find({'closed_at': {'$gte': twenty_four_hours_ago}})
+    
+    cursor = collection.find({
+        'closed_at': {'$gte': twenty_four_hours_ago}
+    })
     closed_trades = await cursor.to_list(length=None)
     
     if not closed_trades:
@@ -493,16 +496,17 @@ async def format_daily_copy_report() -> str:
     today = datetime.now()
     date_string = today.strftime('%d/%m/%Y')
     
-    # استخدم f""" هنا
     report = f"""📊 تقرير النسخ اليومي – خلال الـ24 ساعة الماضية
 🗓 التاريخ: {date_string}
 """
     
     total_pnl_weighted_sum = 0
     total_weight = 0
+    
     for trade in closed_trades:
         if 'pnl_percent' not in trade or 'entry_capital_percent' not in trade:
             continue
+        
         result_emoji = '🔼' if trade['pnl_percent'] >= 0 else '🔽'
         pnl_sign = '+' if trade['pnl_percent'] >= 0 else ''
         report += f"""
@@ -511,23 +515,25 @@ async def format_daily_copy_report() -> str:
 🔸 متوسط سعر الشراء: {format_smart(trade['avg_buy_price'])}
 🔸 سعر الخروج: {format_smart(trade['avg_sell_price'])}
 🔸 نسبة الخروج من الكمية: {format_number(trade.get('exit_quantity_percent', 100))}%
-🔸 النتيجة: {pnl_sign}{format_number(trade['pnl_percent'])}% {result_emoji}"""
-        
-        if trade['entry_capital_percent'] > 0:
-            total_pnl_weighted_sum += trade['pnl_percent'] * trade['entry_capital_percent']
-            total_weight += trade['entry_capital_percent']
+🔸 النتيجة: {pnl_sign}{format_number(trade['pnl_percent'])}% {result_emoji}
+"""
     
     total_pnl = total_pnl_weighted_sum / total_weight if total_weight > 0 else 0
     total_pnl_emoji = '📈' if total_pnl >= 0 else '📉'
     total_pnl_sign = '+' if total_pnl >= 0 else ''
+    
+    # -- التصحيح هنا --
+    # قمنا بتهريب الرابط بشكل يدوي لضمان التوافق مع تليجرام
+    safe_link = "https://t\\.me/abusalamachart"
+    
     report += f"""
-
 إجمالي الربح الحالي خدمة النسخ: {total_pnl_sign}{format_number(total_pnl, 2)}% {total_pnl_emoji}
 ✍️ يمكنك الدخول في أي وقت تراه مناسب، الخدمة مفتوحة للجميع
 📢 قناة التحديثات الرسمية:
 @abusalamachart
 🌐 رابط النسخ المباشر:
-🏦 https://t.me/abusalamachart"""
+🏦 {safe_link}"""
+    
     return report
 # =================================================================
 # POSITION TRACKING
@@ -1117,9 +1123,12 @@ async def healthcheck():
     return {"status": "OK"}
 
 # =================================================================
-# MAIN
+# MAIN (CORRECTED VERSION)
 # =================================================================
 async def main():
+    # إدارة جلسة الاتصال لـ okx_adapter
+    await okx_adapter.init_session()
+
     # Start background tasks
     asyncio.create_task(connect_to_okx_socket(bot))
     
@@ -1143,20 +1152,14 @@ async def main():
     # Send startup message
     await bot.send_message(
         AUTHORIZED_USER_ID,
-        "✅ *البوت جاهز مع تقرير النسخ ومراجعة الصفقات*",
+        "✅ *البوت جاهز ويعمل الآن بشكل كامل*",
         parse_mode='MarkdownV2'
     )
     
-    # Start polling
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    # Run FastAPI in background
-    import threading
-    threading.Thread(
-        target=lambda: uvicorn.run(app, host="0.0.0.0", port=PORT),
-        daemon=True
-    ).start()
-    
-    # Run bot
-    asyncio.run(main())
+    try:
+        # Start polling
+        await dp.start_polling(bot)
+    finally:
+        # إغلاق الجلسة عند إيقاف البوت
+        await okx_adapter.close_session()
+        await bot.session.close()
