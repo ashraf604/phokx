@@ -319,22 +319,20 @@ def sanitize_markdown_v2(text) -> str:
     return text
 
 # =================================================================
-# FORMATTING FUNCTIONS
+# FORMATTING FUNCTIONS (CORRECTED VERSION)
 # =================================================================
-# الحل الصحيح: استخدام علامات التنصيص الثلاثية للنصوص متعددة الأسطر
 
 async def format_portfolio_msg(assets: list, total: float, capital: float) -> str:
     positions = await load_positions()
     usdt_asset = next((a for a in assets if a['asset'] == 'USDT'), {'value': 0})
     cash_percent = (usdt_asset['value'] / total * 100) if total > 0 else 0
     invested_percent = 100 - cash_percent
-
     pnl = total - capital if capital > 0 else 0
     pnl_percent = (pnl / capital * 100) if capital > 0 else 0
     pnl_sign = '+' if pnl >= 0 else ''
     pnl_emoji = '🟢' if pnl >= 0 else '🔴'
 
-    # استخدم """ هنا في البداية
+    # استخدم f""" هنا
     caption = f"""🧾 *تقرير المحفظة*
 *القيمة الإجمالية:* `${sanitize_markdown_v2(format_number(total))}`"""
 
@@ -346,16 +344,15 @@ async def format_portfolio_msg(assets: list, total: float, capital: float) -> st
     caption += f"""
 *السيولة:* 💵 {sanitize_markdown_v2(format_number(cash_percent))}% / 📈 {sanitize_markdown_v2(format_number(invested_percent))}%
 ━━━━━━━━━━━━━━━━━━━━
-*الأصول:*
-"""
+*الأصول:*"""
 
     display_assets = [a for a in assets if a['asset'] != 'USDT']
     for asset in display_assets:
         percent = (asset['value'] / total * 100) if total > 0 else 0
         position = positions.get(asset['asset'], {})
         daily_emoji = '🟢' if asset['change24h'] >= 0 else '🔴'
-
         caption += f"""
+
 *{sanitize_markdown_v2(asset['asset'])}*
   القيمة: `${sanitize_markdown_v2(format_number(asset['value']))}` \\({sanitize_markdown_v2(format_number(percent))}%\\)
   السعر: `${sanitize_markdown_v2(format_smart(asset['price']))}` {daily_emoji} `{sanitize_markdown_v2(format_number(asset['change24h'] * 100))}%`"""
@@ -368,13 +365,31 @@ async def format_portfolio_msg(assets: list, total: float, capital: float) -> st
             emoji = '🟢' if asset_pnl >= 0 else '🔴'
             caption += f"""
   P/L: {emoji} `{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl))}` \\(`{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl_percent))}%`\\)"""
-    
+
     caption += f"""
 
 *USDT:* `${sanitize_markdown_v2(format_number(usdt_asset['value']))}` \\({sanitize_markdown_v2(format_number(cash_percent))}%\\)"""
-    # لا تنس إغلاقها بـ """ في النهاية إذا كنت قد بدأت بها
-    
     return caption
+
+# لقد أضفت دالة format_private_buy هنا لأنها كانت ناقصة
+def format_private_buy(details: dict) -> str:
+    asset = details['asset']
+    price = details['price']
+    amount_change = details['amount_change']
+    trade_value = details['trade_value']
+    new_asset_weight = details['new_asset_weight']
+    new_cash_percent = details['new_cash_percent']
+    
+    # استخدم f""" هنا
+    msg = f"""*🟢 شراء جديد \\| {sanitize_markdown_v2(asset)}*
+━━━━━━━━━━━━━━━━━━━━
+*السعر:* `${sanitize_markdown_v2(format_smart(price))}`
+*الكمية:* `{sanitize_markdown_v2(format_number(abs(amount_change), 6))}`
+*القيمة:* `${sanitize_markdown_v2(format_number(trade_value))}`
+*الوزن الجديد:* `{sanitize_markdown_v2(format_number(new_asset_weight))}%`
+*السيولة المتبقية:* `{sanitize_markdown_v2(format_number(new_cash_percent))}%`"""
+    return msg
+
 def format_private_sell(details: dict) -> str:
     asset = details['asset']
     price = details['price']
@@ -383,19 +398,14 @@ def format_private_sell(details: dict) -> str:
     new_asset_weight = details['new_asset_weight']
     new_cash_percent = details['new_cash_percent']
     
-    msg = f"*🟠 بيع جزئي \\| {sanitize_markdown_v2(asset)}*
+    # استخدم f""" هنا
+    msg = f"""*🟠 بيع جزئي \\| {sanitize_markdown_v2(asset)}*
 ━━━━━━━━━━━━━━━━━━━━
-"
-    msg += f"*السعر:* `${sanitize_markdown_v2(format_smart(price))}`
-"
-    msg += f"*الكمية:* `{sanitize_markdown_v2(format_number(abs(amount_change), 6))}`
-"
-    msg += f"*القيمة:* `${sanitize_markdown_v2(format_number(trade_value))}`
-"
-    msg += f"*الوزن الجديد:* `{sanitize_markdown_v2(format_number(new_asset_weight))}%`
-"
-    msg += f"*السيولة الجديدة:* `{sanitize_markdown_v2(format_number(new_cash_percent))}%`"
-    
+*السعر:* `${sanitize_markdown_v2(format_smart(price))}`
+*الكمية:* `{sanitize_markdown_v2(format_number(abs(amount_change), 6))}`
+*القيمة:* `${sanitize_markdown_v2(format_number(trade_value))}`
+*الوزن الجديد:* `{sanitize_markdown_v2(format_number(new_asset_weight))}%`
+*السيولة الجديدة:* `{sanitize_markdown_v2(format_number(new_cash_percent))}%`"""
     return msg
 
 def format_private_close(details: dict) -> str:
@@ -405,49 +415,38 @@ def format_private_close(details: dict) -> str:
     pnl = details['pnl']
     pnl_percent = details['pnl_percent']
     duration_days = details['duration_days']
-    
     pnl_sign = '+' if pnl >= 0 else ''
     emoji = '🟢' if pnl >= 0 else '🔴'
     
-    msg = f"*✅ إغلاق مركز \\| {sanitize_markdown_v2(asset)}*
+    # استخدم f""" هنا
+    msg = f"""*✅ إغلاق مركز \\| {sanitize_markdown_v2(asset)}*
 ━━━━━━━━━━━━━━━━━━━━
-"
-    msg += f"*سعر الشراء:* `${sanitize_markdown_v2(format_smart(avg_buy_price))}`
-"
-    msg += f"*سعر البيع:* `${sanitize_markdown_v2(format_smart(avg_sell_price))}`
-"
-    msg += f"*النتيجة:* {emoji} `${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl))}` \\(`{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`\\)
-"
-    msg += f"*المدة:* `{sanitize_markdown_v2(format_number(duration_days, 1))} يوم`"
-    
+*سعر الشراء:* `${sanitize_markdown_v2(format_smart(avg_buy_price))}`
+*سعر البيع:* `${sanitize_markdown_v2(format_smart(avg_sell_price))}`
+*النتيجة:* {emoji} `${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl))}` \\(`{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`\\)
+*المدة:* `{sanitize_markdown_v2(format_number(duration_days, 1))} يوم`"""
     return msg
 
 def format_public_buy(details: dict) -> str:
     asset = details['asset']
     price = details['price']
     
-    msg = f"*💡 فرصة جديدة 🟢*
-"
-    msg += f"تم فتح مركز في *{sanitize_markdown_v2(asset)}*
-"
-    msg += f"السعر: `${sanitize_markdown_v2(format_smart(price))}`
-"
-    msg += f"📢 @abusalamachart"
-    
+    # استخدم f""" هنا
+    msg = f"""*💡 فرصة جديدة 🟢*
+تم فتح مركز في *{sanitize_markdown_v2(asset)}*
+السعر: `${sanitize_markdown_v2(format_smart(price))}`
+📢 @abusalamachart"""
     return msg
 
 def format_public_sell(details: dict) -> str:
     asset = details['asset']
     price = details['price']
     
-    msg = f"*⚙️ جني أرباح جزئي 🟠*
-"
-    msg += f"تم بيع جزء من *{sanitize_markdown_v2(asset)}*
-"
-    msg += f"السعر: `${sanitize_markdown_v2(format_smart(price))}`
-"
-    msg += f"📢 @abusalamachart"
-    
+    # استخدم f""" هنا
+    msg = f"""*⚙️ جني أرباح جزئي 🟠*
+تم بيع جزء من *{sanitize_markdown_v2(asset)}*
+السعر: `${sanitize_markdown_v2(format_smart(price))}`
+📢 @abusalamachart"""
     return msg
 
 def format_public_close(details: dict) -> str:
@@ -455,22 +454,16 @@ def format_public_close(details: dict) -> str:
     pnl_percent = details['pnl_percent']
     avg_buy_price = details['avg_buy_price']
     avg_sell_price = details['avg_sell_price']
-    
     pnl_sign = '+' if pnl_percent >= 0 else ''
     emoji = '🟢' if pnl_percent >= 0 else '🔴'
     
-    msg = f"*🏆 نتيجة نهائية {emoji}*
-"
-    msg += f"*{sanitize_markdown_v2(asset)}*
-"
-    msg += f"الدخول: `${sanitize_markdown_v2(format_smart(avg_buy_price))}`
-"
-    msg += f"الخروج: `${sanitize_markdown_v2(format_smart(avg_sell_price))}`
-"
-    msg += f"النتيجة: `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`
-"
-    msg += f"📢 @abusalamachart"
-    
+    # استخدم f""" هنا
+    msg = f"""*🏆 نتيجة نهائية {emoji}*
+*{sanitize_markdown_v2(asset)}*
+الدخول: `${sanitize_markdown_v2(format_smart(avg_buy_price))}`
+الخروج: `${sanitize_markdown_v2(format_smart(avg_sell_price))}`
+النتيجة: `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`
+📢 @abusalamachart"""
     return msg
 
 def format_closed_trade_review(trade: dict, current_price: float) -> str:
@@ -481,67 +474,50 @@ def format_closed_trade_review(trade: dict, current_price: float) -> str:
     actual_pnl = trade['pnl']
     actual_pnl_percent = trade['pnl_percent']
     
-    msg = f"*🔍 مراجعة صفقة مغلقة \\| {sanitize_markdown_v2(asset)}*
-"
-    msg += f"━━━━━━━━━━━━━━━━━━━━
-"
+    # استخدم f""" هنا
+    msg = f"""*🔍 مراجعة صفقة مغلقة \\| {sanitize_markdown_v2(asset)}*
+━━━━━━━━━━━━━━━━━━━━"""
     
-    # Actual performance
     actual_pnl_sign = '+' if actual_pnl >= 0 else ''
     actual_emoji = '🟢' if actual_pnl >= 0 else '🔴'
+    msg += f"""
+*الأداء الفعلي للصفقة:*
+  \\- *سعر الشراء:* `${sanitize_markdown_v2(format_smart(avg_buy_price))}`
+  \\- *سعر البيع:* `${sanitize_markdown_v2(format_smart(avg_sell_price))}`
+  \\- *النتيجة:* `{sanitize_markdown_v2(actual_pnl_sign)}{sanitize_markdown_v2(format_number(actual_pnl))}` {actual_emoji}
+  \\- *العائد:* `{sanitize_markdown_v2(actual_pnl_sign)}{sanitize_markdown_v2(format_number(actual_pnl_percent))}%`"""
     
-    msg += f"*الأداء الفعلي للصفقة:*
-"
-    msg += f"  \\- *سعر الشراء:* `${sanitize_markdown_v2(format_smart(avg_buy_price))}`
-"
-    msg += f"  \\- *سعر البيع:* `${sanitize_markdown_v2(format_smart(avg_sell_price))}`
-"
-    msg += f"  \\- *النتيجة:* `{sanitize_markdown_v2(actual_pnl_sign)}{sanitize_markdown_v2(format_number(actual_pnl))}` {actual_emoji}
-"
-    msg += f"  \\- *العائد:* `{sanitize_markdown_v2(actual_pnl_sign)}{sanitize_markdown_v2(format_number(actual_pnl_percent))}%`
-"
-    
-    # Hypothetical performance
     hypothetical_pnl = (current_price - avg_buy_price) * quantity
     hypothetical_pnl_percent = ((hypothetical_pnl / (avg_buy_price * quantity)) * 100) if avg_buy_price > 0 else 0
     hypothetical_pnl_sign = '+' if hypothetical_pnl >= 0 else ''
     hypothetical_emoji = '🟢' if hypothetical_pnl >= 0 else '🔴'
+    msg += f"""
+
+*لو بقيت الصفقة مفتوحة:*
+  \\- *السعر الحالي:* `${sanitize_markdown_v2(format_smart(current_price))}`
+  \\- *النتيجة الحالية:* `{sanitize_markdown_v2(hypothetical_pnl_sign)}{sanitize_markdown_v2(format_number(hypothetical_pnl))}` {hypothetical_emoji}
+  \\- *العائد الحالي:* `{sanitize_markdown_v2(hypothetical_pnl_sign)}{sanitize_markdown_v2(format_number(hypothetical_pnl_percent))}%`"""
     
-    msg += f"*لو بقيت الصفقة مفتوحة:*
-"
-    msg += f"  \\- *السعر الحالي:* `${sanitize_markdown_v2(format_smart(current_price))}`
-"
-    msg += f"  \\- *النتيجة الحالية:* `{sanitize_markdown_v2(hypothetical_pnl_sign)}{sanitize_markdown_v2(format_number(hypothetical_pnl))}` {hypothetical_emoji}
-"
-    msg += f"  \\- *العائد الحالي:* `{sanitize_markdown_v2(hypothetical_pnl_sign)}{sanitize_markdown_v2(format_number(hypothetical_pnl_percent))}%`
-"
-    
-    # Analysis
     price_change_since_close = current_price - avg_sell_price
     price_change_percent = ((price_change_since_close / avg_sell_price) * 100) if avg_sell_price > 0 else 0
     change_sign = '⬆️' if price_change_since_close >= 0 else '⬇️'
-    
-    msg += f"*تحليل قرار الخروج:*
-"
-    msg += f"  \\- *حركة السعر منذ الإغلاق:* `{sanitize_markdown_v2(format_number(price_change_percent))}%` {change_sign}
-"
+    msg += f"""
+
+*تحليل قرار الخروج:*
+  \\- *حركة السعر منذ الإغلاق:* `{sanitize_markdown_v2(format_number(price_change_percent))}%` {change_sign}"""
     
     if price_change_since_close > 0:
-        msg += f"  \\- *التقييم:* 📈 السعر واصل الصعود، كان ممكن ربح أكبر
-"
+        msg += f"""
+  \\- *التقييم:* 📈 السعر واصل الصعود، كان ممكن ربح أكبر"""
     else:
-        msg += f"  \\- *التقييم:* ✅ قرار ممتاز، السعر انخفض بعد الخروج
-"
-    
+        msg += f"""
+  \\- *التقييم:* ✅ قرار ممتاز، السعر انخفض بعد الخروج"""
     return msg
 
 async def format_daily_copy_report() -> str:
     twenty_four_hours_ago = datetime.now() - timedelta(days=1)
     collection = await get_collection('trade_history')
-    
-    cursor = collection.find({
-        'closed_at': {'$gte': twenty_four_hours_ago}
-    })
+    cursor = collection.find({'closed_at': {'$gte': twenty_four_hours_ago}})
     closed_trades = await cursor.to_list(length=None)
     
     if not closed_trades:
@@ -550,33 +526,25 @@ async def format_daily_copy_report() -> str:
     today = datetime.now()
     date_string = today.strftime('%d/%m/%Y')
     
-    report = f"📊 تقرير النسخ اليومي – خلال الـ24 ساعة الماضية
-"
-    report += f"🗓 التاريخ: {date_string}
-"
+    # استخدم f""" هنا
+    report = f"""📊 تقرير النسخ اليومي – خلال الـ24 ساعة الماضية
+🗓 التاريخ: {date_string}
+"""
     
     total_pnl_weighted_sum = 0
     total_weight = 0
-    
     for trade in closed_trades:
         if 'pnl_percent' not in trade or 'entry_capital_percent' not in trade:
             continue
-        
         result_emoji = '🔼' if trade['pnl_percent'] >= 0 else '🔽'
-        
-        report += f"🔸 اسم العملة: {trade['asset']}
-"
-        report += f"🔸 نسبة الدخول من رأس المال: {format_number(trade['entry_capital_percent'])}%
-"
-        report += f"🔸 متوسط سعر الشراء: {format_smart(trade['avg_buy_price'])}
-"
-        report += f"🔸 سعر الخروج: {format_smart(trade['avg_sell_price'])}
-"
-        report += f"🔸 نسبة الخروج من الكمية: {format_number(trade.get('exit_quantity_percent', 100))}%
-"
         pnl_sign = '+' if trade['pnl_percent'] >= 0 else ''
-        report += f"🔸 النتيجة: {pnl_sign}{format_number(trade['pnl_percent'])}% {result_emoji}
-"
+        report += f"""
+🔸 اسم العملة: {trade['asset']}
+🔸 نسبة الدخول من رأس المال: {format_number(trade['entry_capital_percent'])}%
+🔸 متوسط سعر الشراء: {format_smart(trade['avg_buy_price'])}
+🔸 سعر الخروج: {format_smart(trade['avg_sell_price'])}
+🔸 نسبة الخروج من الكمية: {format_number(trade.get('exit_quantity_percent', 100))}%
+🔸 النتيجة: {pnl_sign}{format_number(trade['pnl_percent'])}% {result_emoji}"""
         
         if trade['entry_capital_percent'] > 0:
             total_pnl_weighted_sum += trade['pnl_percent'] * trade['entry_capital_percent']
@@ -585,19 +553,15 @@ async def format_daily_copy_report() -> str:
     total_pnl = total_pnl_weighted_sum / total_weight if total_weight > 0 else 0
     total_pnl_emoji = '📈' if total_pnl >= 0 else '📉'
     total_pnl_sign = '+' if total_pnl >= 0 else ''
-    
-    report += f"إجمالي الربح الحالي خدمة النسخ: {total_pnl_sign}{format_number(total_pnl, 2)}% {total_pnl_emoji}
-"
-    report += f"✍️ يمكنك الدخول في أي وقت تراه مناسب، الخدمة مفتوحة للجميع
-"
-    report += f"📢 قناة التحديثات الرسمية:
-@abusalamachart
-"
-    report += f"🌐 رابط النسخ المباشر:
-🏦 https://t.me/abusalamachart"
-    
-    return report
+    report += f"""
 
+إجمالي الربح الحالي خدمة النسخ: {total_pnl_sign}{format_number(total_pnl, 2)}% {total_pnl_emoji}
+✍️ يمكنك الدخول في أي وقت تراه مناسب، الخدمة مفتوحة للجميع
+📢 قناة التحديثات الرسمية:
+@abusalamachart
+🌐 رابط النسخ المباشر:
+🏦 https://t.me/abusalamachart"""
+    return report
 # =================================================================
 # POSITION TRACKING
 # =================================================================
