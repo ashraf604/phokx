@@ -321,84 +321,60 @@ def sanitize_markdown_v2(text) -> str:
 # =================================================================
 # FORMATTING FUNCTIONS
 # =================================================================
+# الحل الصحيح: استخدام علامات التنصيص الثلاثية للنصوص متعددة الأسطر
+
 async def format_portfolio_msg(assets: list, total: float, capital: float) -> str:
     positions = await load_positions()
     usdt_asset = next((a for a in assets if a['asset'] == 'USDT'), {'value': 0})
     cash_percent = (usdt_asset['value'] / total * 100) if total > 0 else 0
     invested_percent = 100 - cash_percent
-    
+
     pnl = total - capital if capital > 0 else 0
     pnl_percent = (pnl / capital * 100) if capital > 0 else 0
     pnl_sign = '+' if pnl >= 0 else ''
     pnl_emoji = '🟢' if pnl >= 0 else '🔴'
-    
-    caption = f"🧾 *تقرير المحفظة*
-"
-    caption += f"*القيمة الإجمالية:* `${sanitize_markdown_v2(format_number(total))}`
-"
-    
+
+    # استخدم """ هنا في البداية
+    caption = f"""🧾 *تقرير المحفظة*
+*القيمة الإجمالية:* `${sanitize_markdown_v2(format_number(total))}`"""
+
     if capital > 0:
-        caption += f"*رأس المال:* `${sanitize_markdown_v2(format_number(capital))}`
-"
-        caption += f"*الربح/الخسارة:* {pnl_emoji} `${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl))}` \\(`{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`\\)
-"
-    
-    caption += f"*السيولة:* 💵 {sanitize_markdown_v2(format_number(cash_percent))}% / 📈 {sanitize_markdown_v2(format_number(invested_percent))}%
-"
-    caption += f"━━━━━━━━━━━━━━━━━━━━
+        caption += f"""
+*رأس المال:* `${sanitize_markdown_v2(format_number(capital))}`
+*الربح/الخسارة:* {pnl_emoji} `${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl))}` \\(`{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`\\)"""
+
+    caption += f"""
+*السيولة:* 💵 {sanitize_markdown_v2(format_number(cash_percent))}% / 📈 {sanitize_markdown_v2(format_number(invested_percent))}%
+━━━━━━━━━━━━━━━━━━━━
 *الأصول:*
-"
-    
+"""
+
     display_assets = [a for a in assets if a['asset'] != 'USDT']
     for asset in display_assets:
         percent = (asset['value'] / total * 100) if total > 0 else 0
         position = positions.get(asset['asset'], {})
         daily_emoji = '🟢' if asset['change24h'] >= 0 else '🔴'
-        
-        caption += f"*{sanitize_markdown_v2(asset['asset'])}*
-"
-        caption += f"  القيمة: `${sanitize_markdown_v2(format_number(asset['value']))}` \\({sanitize_markdown_v2(format_number(percent))}%\\)
-"
-        caption += f"  السعر: `${sanitize_markdown_v2(format_smart(asset['price']))}` {daily_emoji} `{sanitize_markdown_v2(format_number(asset['change24h'] * 100))}%`
-"
-        
+
+        caption += f"""
+*{sanitize_markdown_v2(asset['asset'])}*
+  القيمة: `${sanitize_markdown_v2(format_number(asset['value']))}` \\({sanitize_markdown_v2(format_number(percent))}%\\)
+  السعر: `${sanitize_markdown_v2(format_smart(asset['price']))}` {daily_emoji} `{sanitize_markdown_v2(format_number(asset['change24h'] * 100))}%`"""
+
         if position.get('avg_buy_price', 0) > 0:
             asset_pnl = asset['value'] - (position['avg_buy_price'] * asset['amount'])
             cost = position['avg_buy_price'] * asset['amount']
             asset_pnl_percent = (asset_pnl / cost * 100) if cost > 0 else 0
             sign = '+' if asset_pnl >= 0 else ''
             emoji = '🟢' if asset_pnl >= 0 else '🔴'
-            caption += f"  P/L: {emoji} `{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl))}` \\(`{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl_percent))}%`\\)
-"
-        caption += "
-"
+            caption += f"""
+  P/L: {emoji} `{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl))}` \\(`{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl_percent))}%`\\)"""
     
-    caption += f"*USDT:* `${sanitize_markdown_v2(format_number(usdt_asset['value']))}` \\({sanitize_markdown_v2(format_number(cash_percent))}%\\)"
+    caption += f"""
+
+*USDT:* `${sanitize_markdown_v2(format_number(usdt_asset['value']))}` \\({sanitize_markdown_v2(format_number(cash_percent))}%\\)"""
+    # لا تنس إغلاقها بـ """ في النهاية إذا كنت قد بدأت بها
+    
     return caption
-
-def format_private_buy(details: dict) -> str:
-    asset = details['asset']
-    price = details['price']
-    amount_change = details['amount_change']
-    trade_value = details['trade_value']
-    new_asset_weight = details['new_asset_weight']
-    new_cash_percent = details['new_cash_percent']
-    
-    msg = f"*🟢 شراء جديد \\| {sanitize_markdown_v2(asset)}*
-━━━━━━━━━━━━━━━━━━━━
-"
-    msg += f"*السعر:* `${sanitize_markdown_v2(format_smart(price))}`
-"
-    msg += f"*الكمية:* `{sanitize_markdown_v2(format_number(abs(amount_change), 6))}`
-"
-    msg += f"*القيمة:* `${sanitize_markdown_v2(format_number(trade_value))}`
-"
-    msg += f"*الوزن الجديد:* `{sanitize_markdown_v2(format_number(new_asset_weight))}%`
-"
-    msg += f"*السيولة المتبقية:* `{sanitize_markdown_v2(format_number(new_cash_percent))}%`"
-    
-    return msg
-
 def format_private_sell(details: dict) -> str:
     asset = details['asset']
     price = details['price']
