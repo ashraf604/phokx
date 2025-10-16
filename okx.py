@@ -786,25 +786,28 @@ async def run_daily_jobs():
     except Exception as e:
         logger.error(f"Error in run_daily_jobs: {e}")
 
+# =================================================================
+# استبدل هذه الدالة بالكامل
+# =================================================================
 async def run_daily_report_job(bot: Bot):
     try:
         logger.info("Running daily report job...")
-        report = await format_daily_copy_report()
+        report_text = await format_daily_copy_report()
         
         # --- هذا هو التعديل ---
-        # لقد قمنا بإزالة السطر: safe_report = sanitize_markdown_v2(report)
-        # لأن التقرير أصبح جاهزًا ومعالجًا من الدالة السابقة
+        # لقد أزلنا دالة sanitize_markdown_v2 من هنا
+        # لأن التقرير أصبح جاهزًا ومعالجًا بالفعل من الدالة السابقة
         
-        if "لم يتم إغلاق أي صفقات" in report:
+        if "لم يتم إغلاق أي صفقات" in report_text:
             await bot.send_message(
                 AUTHORIZED_USER_ID,
-                report,  # استخدم report مباشرة
+                report_text,  # نستخدم النص مباشرة
                 parse_mode='MarkdownV2'
             )
         else:
             await bot.send_message(
                 TARGET_CHANNEL_ID,
-                report,  # استخدم report مباشرة
+                report_text,  # نستخدم النص مباشرة
                 parse_mode='MarkdownV2'
             )
             await bot.send_message(
@@ -814,11 +817,7 @@ async def run_daily_report_job(bot: Bot):
             )
     except Exception as e:
         logger.error(f"Error in run_daily_report_job: {e}")
-        await bot.send_message(
-            AUTHORIZED_USER_ID,
-            f"❌ حدث خطأ أثناء إنشاء التقرير اليومي: {sanitize_markdown_v2(str(e))}",
-            parse_mode='MarkdownV2'
-        )
+        # لا نرسل رسالة خطأ هنا لتجنب حلقة أخطاء إذا كانت المشكلة في الإرسال نفسه
 
 # =================================================================
 # WEBSOCKET
