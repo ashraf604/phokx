@@ -790,18 +790,21 @@ async def run_daily_report_job(bot: Bot):
     try:
         logger.info("Running daily report job...")
         report = await format_daily_copy_report()
-        safe_report = sanitize_markdown_v2(report)
+        
+        # --- هذا هو التعديل ---
+        # لقد قمنا بإزالة السطر: safe_report = sanitize_markdown_v2(report)
+        # لأن التقرير أصبح جاهزًا ومعالجًا من الدالة السابقة
         
         if "لم يتم إغلاق أي صفقات" in report:
             await bot.send_message(
                 AUTHORIZED_USER_ID,
-                safe_report,
+                report,  # استخدم report مباشرة
                 parse_mode='MarkdownV2'
             )
         else:
             await bot.send_message(
                 TARGET_CHANNEL_ID,
-                safe_report,
+                report,  # استخدم report مباشرة
                 parse_mode='MarkdownV2'
             )
             await bot.send_message(
