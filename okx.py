@@ -649,6 +649,18 @@ async def run_daily_report_job(bot: Bot):
             await bot.send_message(AUTHORIZED_USER_ID, "✅ تم إرسال تقرير النسخ اليومي إلى القناة بنجاح\\.", parse_mode='MarkdownV2')
     except Exception as e:
         logger.error(f"Error in run_daily_report_job: {e}")
+        # ======> الكود الجديد الذي يجب إضافته <======
+async def balance_polling_task(bot: Bot):
+    """
+    مهمة احتياطية للتحقق من الرصيد بشكل دوري كل 60 ثانية.
+    """
+    while True:
+        try:
+            logger.info("Running periodic balance check...")
+            await monitor_balance_changes(bot)
+        except Exception as e:
+            logger.error(f"Error in periodic balance check: {e}")
+        await asyncio.sleep(60) # انتظر 60 ثانية قبل الفحص التالي
 
 # =================================================================
 # WEBSOCKET
@@ -856,7 +868,7 @@ async def main():
 
     # Start background tasks
     asyncio.create_task(connect_to_okx_socket(bot))
-    
+    asyncio.create_task(balance_polling_task(bot))
     # Schedule daily jobs
     async def daily_job_scheduler():
         while True:
