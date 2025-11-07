@@ -127,6 +127,36 @@ async def save_closed_trade(trade_data: dict):
         logger.error(f"Error saving closed trade: {e}")
 
 # =================================================================
+# ANTI-SPAM: Track recent notifications to prevent duplicates
+# =================================================================
+recent_notifications = {}  # {asset_type: {'last_time': timestamp, 'last_value': value, 'min_interval': 300}}  # 5 min cooldown
+
+async def can_send_notification(asset: str, action_type: str, current_value: float) -> bool:
+    """
+    Check if we can send a notification for this asset/action to avoid spam.
+    """
+    key = f"{asset}_{action_type}"
+    now = datetime.now().timestamp()
+    last = recent_notifications.get(key, {'last_time': 0, 'last_value': 0})
+    
+    # If no previous, allow
+    if last['last_time'] == 0:
+        recent_notifications[key] = {'last_time': now, 'last_value': current_value}
+        return True
+    
+    # Check time interval (e.g., 5 minutes)
+    min_interval = 300  # seconds
+    if now - last['last_time'] < min_interval:
+        # Also check if value changed significantly (e.g., >1%)
+        if abs(current_value - last['last_value']) / last['last_value'] < 0.01 if last['last_value'] > 0 else True:
+            logger.info(f"Skipping duplicate notification for {key}: too soon or insignificant change")
+            return False
+    
+    # Update
+    recent_notifications[key] = {'last_time': now, 'last_value': current_value}
+    return True
+
+# =================================================================
 # OKX API ADAPTER
 # =================================================================
 class OKXAdapter:
@@ -642,7 +672,7 @@ async def monitor_balance_changes(bot: Bot):
         new_usdt_value = portfolio_data['usdt_value']
 
         if not previous_balances:
-            await save_balance_state({'balances': current_balance, 'total_value': new_total_value})
+            await save_balance_state({'balances': current_balance, 'total_value': new_total_value, 'usdt_value': new_usdt_value})
             is_processing_balance = False
             return
         
@@ -658,12 +688,12 @@ async def monitor_balance_changes(bot: Bot):
             difference = curr_amount - prev_amount
             price_data = prices.get(f"{asset}-USDT", {})
             
-            if not price_data or abs(difference * price_data.get('price', 0)) < 1:
+            if not price_data or abs(difference * price_data.get('price', 0)) < 5:  # Increased threshold to 5 USD to reduce noise
                 continue
 
             state_needs_update = True
             old_total_value = previous_state.get('total_value', 0)
-            old_usdt_value = previous_state.get('usdt_value', 0) if 'usdt_value' in previous_state else new_usdt_value  # Approximate old USDT
+            old_usdt_value = previous_state.get('usdt_value', 0)
             result = await update_position_and_analyze(asset, difference, price_data['price'], curr_amount, old_total_value)
             analysis_result = result['analysis_result']
             
@@ -688,6 +718,11 @@ async def monitor_balance_changes(bot: Bot):
                 'journey_id': journey_id  # Added journey_id
             }
             settings = await load_settings()
+            
+            # Anti-spam check before sending
+            action_key = 'buy' if analysis_result['type'] == 'buy' else 'sell' if analysis_result['type'] == 'sell' else 'close'
+            if not await can_send_notification(asset, action_key, trade_value):
+                continue
             
             if analysis_result['type'] == 'buy':
                 private_message = format_private_buy(base_details)
@@ -824,7 +859,7 @@ async def connect_to_okx_socket(bot: Bot):
             await asyncio.sleep(5)
 
 async def debounced_balance_check(bot: Bot):
-    await asyncio.sleep(5)
+    await asyncio.sleep(10)  # Increased debounce to 10 seconds to reduce spam
     await monitor_balance_changes(bot)
 
 # =================================================================
