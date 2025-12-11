@@ -321,225 +321,115 @@ def sanitize_markdown_v2(text) -> str:
     return text
 
 # =================================================================
-# HELPER: Visual Progress Bar
-# =================================================================
-def create_progress_bar(percent: float, length: int = 10) -> str:
-    """Creates a text-based progress bar."""
-    percent = max(0, min(100, percent))
-    filled_length = int(length * percent // 100)
-    bar = '▓' * filled_length + '░' * (length - filled_length)
-    return bar
-
-def get_weight_class(percent: float) -> str:
-    """Classifies the position weight."""
-    if percent < 5: return "مضاربة سريعة (Light)"
-    if percent < 15: return "مركز متوسط (Standard)"
-    return "مركز استراتيجي (Heavy)"
-
-# =================================================================
-# FORMATTING FUNCTIONS (FIXED MARKDOWN)
+# FORMATTING FUNCTIONS
 # =================================================================
 async def format_portfolio_msg(assets: list, total: float, capital: float) -> str:
     positions = await load_positions()
     usdt_asset = next((a for a in assets if a['asset'] == 'USDT'), {'value': 0})
-    
     cash_percent = (usdt_asset['value'] / total * 100) if total > 0 else 0
     invested_percent = 100 - cash_percent
     pnl = total - capital if capital > 0 else 0
     pnl_percent = (pnl / capital * 100) if capital > 0 else 0
-    
     pnl_sign = '+' if pnl >= 0 else ''
     pnl_emoji = '🟢' if pnl >= 0 else '🔴'
-    
-    cash_bar = create_progress_bar(cash_percent, 8)
-    invested_bar = create_progress_bar(invested_percent, 8)
 
-    caption = f"📊 *التقرير المالي للمحفظة* \\| {datetime.now().strftime('%d/%m')}\n"
-    caption += "━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    caption += f"💰 *صافي الأصول \\(NAV\\):* `${sanitize_markdown_v2(format_number(total))}`\n"
+    caption = f"🧾 *تقرير المحفظة*\n*القيمة الإجمالية:* `${sanitize_markdown_v2(format_number(total))}`"
     if capital > 0:
-        caption += f"📉 *الأداء التراكمي:* {pnl_emoji} `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`\n"
-        caption += f"💵 *الربح/الخسارة:* `${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl))}`\n"
-    
-    # FIX: Escaped parentheses \(Exposure\)
-    caption += f"\n⚖️ *توزيع السيولة \\(Exposure\\):*\n"
-    caption += f"سيولة `{cash_bar}` `{sanitize_markdown_v2(format_number(cash_percent))}%`\n"
-    caption += f"أصول  `{invested_bar}` `{sanitize_markdown_v2(format_number(invested_percent))}%`\n"
-    
-    caption += "\n📁 *الأصول النشطة:*\n"
-    
+        caption += f"\n*رأس المال:* `${sanitize_markdown_v2(format_number(capital))}`"
+        caption += f"\n*الربح/الخسارة:* {pnl_emoji} `${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl))}` \\(`{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`\\)"
+    caption += f"\n*السيولة:* 💵 {sanitize_markdown_v2(format_number(cash_percent))}% / 📈 {sanitize_markdown_v2(format_number(invested_percent))}%"
+    caption += f"\n━━━━━━━━━━━━━━━━━━━━\n*الأصول:*"
+
     display_assets = [a for a in assets if a['asset'] != 'USDT']
-    if not display_assets:
-        caption += "🚫 _لا توجد مراكز مفتوحة حالياً_\n"
-        
     for asset in display_assets:
         percent = (asset['value'] / total * 100) if total > 0 else 0
         position = positions.get(asset['asset'], {})
-        daily_change = asset['change24h'] * 100
-        daily_emoji = '🔼' if daily_change >= 0 else '🔽'
-        
-        caption += f"🔹 *{sanitize_markdown_v2(asset['asset'])}* {daily_emoji} `{sanitize_markdown_v2(format_number(daily_change))}%`\n"
-        caption += f"   ├ الوزن: `{sanitize_markdown_v2(format_number(percent))}%`\n"
-        caption += f"   └ القيمة: `${sanitize_markdown_v2(format_number(asset['value']))}`"
-        
+        daily_emoji = '🟢' if asset['change24h'] >= 0 else '🔴'
+        caption += f"\n\n*{sanitize_markdown_v2(asset['asset'])}*"
+        caption += f"\n  القيمة: `${sanitize_markdown_v2(format_number(asset['value']))}` \\({sanitize_markdown_v2(format_number(percent))}%\\)"
+        caption += f"\n  السعر: `${sanitize_markdown_v2(format_smart(asset['price']))}` {daily_emoji} `{sanitize_markdown_v2(format_number(asset['change24h'] * 100))}%`"
         if position.get('avg_buy_price', 0) > 0:
             asset_pnl = asset['value'] - (position['avg_buy_price'] * asset['amount'])
             cost = position['avg_buy_price'] * asset['amount']
             asset_pnl_percent = (asset_pnl / cost * 100) if cost > 0 else 0
             sign = '+' if asset_pnl >= 0 else ''
-            pnl_indic = '✅' if asset_pnl >= 0 else '🔻'
-            caption += f"\n   └ العائد: {pnl_indic} `{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl_percent))}%`"
-        
-        caption += "\n\n"
-
-    caption += f"💳 *رصيد الكاش \\(USDT\\):* `${sanitize_markdown_v2(format_number(usdt_asset['value']))}`"
+            emoji = '🟢' if asset_pnl >= 0 else '🔴'
+            caption += f"\n  P/L: {emoji} `{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl))}` \\(`{sanitize_markdown_v2(sign)}{sanitize_markdown_v2(format_number(asset_pnl_percent))}%`\\)"
+    caption += f"\n\n*USDT:* `${sanitize_markdown_v2(format_number(usdt_asset['value']))}` \\({sanitize_markdown_v2(format_number(cash_percent))}%\\)"
     return caption
 
-def format_public_buy(details: dict) -> str:
-    journey_id = details.get('journey_id', 'N/A')
-    trade_value = details.get('trade_value', 0)
-    old_total_value = details.get('old_total_value', 0)
-    
-    trade_size_percent = (trade_value / old_total_value * 100) if old_total_value > 0 else 0
-    weight_class = get_weight_class(trade_size_percent)
-    risk_bar = create_progress_bar(trade_size_percent, 10)
-    
-    safe_journey_id = sanitize_markdown_v2(journey_id)
-    safe_class = sanitize_markdown_v2(weight_class)
+def format_private_buy(details: dict) -> str:
+    return (f"*🟢 شراء جديد \\| {sanitize_markdown_v2(details['asset'])}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"*السعر:* `${sanitize_markdown_v2(format_smart(details['price']))}`\n"
+            f"*الكمية:* `{sanitize_markdown_v2(format_number(abs(details['amount_change']), 6))}`\n"
+            f"*القيمة:* `${sanitize_markdown_v2(format_number(details['trade_value']))}`\n"
+            f"*الوزن الجديد:* `{sanitize_markdown_v2(format_number(details['new_asset_weight']))}%`\n"
+            f"*السيولة المتبقية:* `{sanitize_markdown_v2(format_number(details['new_cash_percent']))}%`")
 
-    msg = f"🛡 *Horus Alpha \\| مركز استراتيجي جديد*\n"
-    msg += f"🆔 الرحلة: `#{safe_journey_id}`\n"
-    msg += "━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "رصدت الخوارزميات فرصة استثمارية ذات احتمالية عالية، وتم البدء في بناء مركز جديد في *أصل رقمي كامن*\\.\n\n"
-    
-    # FIX: Escaped parentheses \(Allocation\)
-    msg += "*⚙️ بيانات التخصيص \\(Allocation\\):*\n"
-    msg += f"▪️ *التصنيف:* {safe_class}\n"
-    msg += f"▪️ *حجم الدخول:* `{sanitize_markdown_v2(format_number(trade_size_percent))}%` من المحفظة\n"
-    msg += f"▪️ *المخاطرة:* `{risk_bar}`\n\n"
-    
-    msg += "🔭 *النظرة الفنية:* نركز هنا على الزخم الصاعد المتوقع مع الحفاظ على إدارة صارمة للمخاطر\\. سيتم الكشف عن اسم الأصل عند تأكيد الاتجاه وتحقيق الهدف الأول\\.\n\n"
-    
-    msg += "⚡️ لنسخ هذه الصفقة ومثيلاتها تلقائياً:\n"
-    msg += "🏦 https://t\\.me/abusalamachart\n"
-    msg += "📢 @abusalamachart"
+def format_private_sell(details: dict) -> str:
+    return (f"*🟠 بيع جزئي \\| {sanitize_markdown_v2(details['asset'])}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"*السعر:* `${sanitize_markdown_v2(format_smart(details['price']))}`\n"
+            f"*الكمية:* `{sanitize_markdown_v2(format_number(abs(details['amount_change']), 6))}`\n"
+            f"*القيمة:* `${sanitize_markdown_v2(format_number(details['trade_value']))}`\n"
+            f"*الوزن الجديد:* `{sanitize_markdown_v2(format_number(details['new_asset_weight']))}%`\n"
+            f"*السيولة الجديدة:* `{sanitize_markdown_v2(format_number(details['new_cash_percent']))}%`")
 
-    return msg
+def format_private_close(details: dict) -> str:
+    pnl_sign = '+' if details['pnl'] >= 0 else ''
+    emoji = '🟢' if details['pnl'] >= 0 else '🔴'
+    return (f"*✅ إغلاق مركز \\| {sanitize_markdown_v2(details['asset'])}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"*سعر الشراء:* `${sanitize_markdown_v2(format_smart(details['avg_buy_price']))}`\n"
+            f"*سعر البيع:* `${sanitize_markdown_v2(format_smart(details['avg_sell_price']))}`\n"
+            f"*النتيجة:* {emoji} `${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(details['pnl']))}` \\(`{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(details['pnl_percent']))}%`\\)\n"
+            f"*المدة:* `{sanitize_markdown_v2(format_number(details['duration_days'], 1))} يوم`")
 
-def format_public_sell(details: dict) -> str:
-    journey_id = details.get('journey_id', 'N/A')
-    asset = details.get('asset', 'N/A')
-    price = details.get('price', 0)
-    amount_change = details.get('amount_change', 0)
-    position = details.get('position', {})
-
-    avg_buy_price = position.get('avg_buy_price', 0)
-    sold_amount = abs(amount_change)
-    cost_of_part = avg_buy_price * sold_amount
-    pnl_on_part = (price - avg_buy_price) * sold_amount
-    pnl_percent_on_part = (pnl_on_part / cost_of_part * 100) if cost_of_part > 0 else 0
-    
-    total_amount_sold_before = position.get('total_amount_sold', 0) - sold_amount
-    amount_before_this_sale = position.get('total_amount_bought', 0) - total_amount_sold_before
-    sold_percent = (sold_amount / amount_before_this_sale * 100) if amount_before_this_sale > 0 else 0
-
-    safe_journey_id = sanitize_markdown_v2(journey_id)
-    safe_asset = sanitize_markdown_v2(asset)
-    
-    msg = f"🎯 *تحقيق هدف وكشف العملة \\| الرحلة #{safe_journey_id}*\n"
-    msg += "━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"تتذكرون المركز المجهول؟ لقد أثبتت الاستراتيجية نجاحها\\. العملة هي **{safe_asset}**\\.\n\n"
-    
-    # FIX: Escaped parentheses \(Profit Taking\)
-    msg += "*📊 تقرير جني الأرباح \\(Profit Taking\\):*\n"
-    msg += f"💎 *الأصل:* `{safe_asset}`\n"
-    msg += f"💵 *سعر البيع:* `${sanitize_markdown_v2(format_smart(price))}`\n"
-    msg += f"✂️ *الكمية المخففة:* `{sanitize_markdown_v2(format_number(sold_percent))}%` من المركز\n"
-    msg += f"📈 *العائد المحقق:* `+{sanitize_markdown_v2(format_number(pnl_percent_on_part))}%` 🟢\n\n"
-    
-    msg += "💡 *الوضع الحالي:* قمنا بتأمين جزء من الأرباح وسنستمر في الاحتفاظ بباقي الكمية لموجات صعود أخرى محتملة\\. الانضباط هو سر الاستمرارية\\.\n\n"
-    
-    msg += "🔗 ابدأ رحلة الاستثمار الذكي معنا:\n"
-    msg += "🏦 https://t\\.me/abusalamachart\n"
-    msg += "📢 @abusalamachart"
-
-    return msg
-
-def format_public_close(details: dict) -> str:
-    journey_id = details.get('journey_id', 'N/A')
-    asset = details.get('asset', 'N/A')
-    avg_buy_price = details.get('avg_buy_price', 0)
-    avg_sell_price = details.get('avg_sell_price', 0)
-    pnl_percent = details.get('pnl_percent', 0)
-    duration_days = details.get('duration_days', 0)
-
-    pnl_sign = '+' if pnl_percent >= 0 else ''
-    safe_journey_id = sanitize_markdown_v2(journey_id)
-    safe_asset = sanitize_markdown_v2(asset)
-
-    msg = f"🏆 *اكتمال الرحلة #{safe_journey_id} \\| تقرير الأداء النهائي*\n"
-    msg += "━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"تم إغلاق ملف الاستثمار في **{safe_asset}** بشكل كامل\\. إليكم ملخص الأداء:\n\n"
-    
-    # FIX: Escaped parentheses \(Scorecard\) and \(ROI\)
-    msg += "*📊 بطاقة الأداء \\(Scorecard\\):*\n"
-    msg += f"🔹 *الأصل:* `{safe_asset}`\n"
-    msg += f"⏱ *فترة الاحتفاظ:* `{sanitize_markdown_v2(format_number(duration_days, 1))} أيام`\n"
-    msg += f"📉 *متوسط الدخول:* `${sanitize_markdown_v2(format_smart(avg_buy_price))}`\n"
-    msg += f"📈 *متوسط الخروج:* `${sanitize_markdown_v2(format_smart(avg_sell_price))}`\n"
-    msg += "━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"💰 *صافي العائد \\(ROI\\):* `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%` 🟢\n"
-    msg += "━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    msg += "🎓 *الخلاصة:* استراتيجية الدخول والخروج المتدرج أثبتت كفاءتها في استخلاص القيمة من السوق\\. \n\n"
-    
-    msg += "🚀 لا تفوت الرحلة القادمة، انضم للنسخ الآن:\n"
-    msg += "🏦 https://t\\.me/abusalamachart\n"
-    msg += "📢 @abusalamachart"
-
-    return msg
 # =================================================================
-# NEW TEMPLATE V2.0 PRO - Public Channel Functions
+# NEW TEMPLATE V148.5 - Public Channel Functions
 # =================================================================
 
 def format_public_buy(details: dict) -> str:
     """
-    UPGRADED: Uses visual bars and classification.
+    NEW TEMPLATE V148.5
+    Formats the ANONYMOUS message for a new buy/position entry for the public channel.
+    Focuses on risk management metrics and introduces a journey ID.
     """
     journey_id = details.get('journey_id', 'N/A')
     trade_value = details.get('trade_value', 0)
     old_total_value = details.get('old_total_value', 0)
-    
-    # Calculations
-    trade_size_percent = (trade_value / old_total_value * 100) if old_total_value > 0 else 0
-    weight_class = get_weight_class(trade_size_percent)
-    risk_bar = create_progress_bar(trade_size_percent, 10)
-    
-    safe_journey_id = sanitize_markdown_v2(journey_id)
-    safe_class = sanitize_markdown_v2(weight_class)
+    old_usdt_value = details.get('old_usdt_value', 0)
+    new_cash_percent = details.get('new_cash_percent', 0)
 
-    msg = f"🛡 *Horus Alpha \\| مركز استراتيجي جديد*\n"
-    msg += f"🆔 الرحلة: `#{safe_journey_id}`\n"
-    msg += "━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "رصدت الخوارزميات فرصة استثمارية ذات احتمالية عالية، وتم البدء في بناء مركز جديد في *أصل رقمي كامن*\\.\n\n"
-    
-    msg += "*⚙️ بيانات التخصيص (Allocation):*\n"
-    msg += f"▪️ *التصنيف:* {safe_class}\n"
-    msg += f"▪️ *حجم الدخول:* `{sanitize_markdown_v2(format_number(trade_size_percent))}%` من المحفظة\n"
-    msg += f"▪️ *المخاطرة:* `{risk_bar}`\n\n"
-    
-    msg += "🔭 *النظرة الفنية:* نركز هنا على الزخم الصاعد المتوقع مع الحفاظ على إدارة صارمة للمخاطر\\. سيتم الكشف عن اسم الأصل عند تأكيد الاتجاه وتحقيق الهدف الأول\\.\n\n"
-    
-    msg += "⚡️ لنسخ هذه الصفقة ومثيلاتها تلقائياً:\n"
-    msg += "🏦 https://t\\.me/abusalamachart\n"
-    msg += "📢 @abusalamachart"
+    # Calculate risk management percentages
+    trade_size_percent = (trade_value / old_total_value * 100) if old_total_value > 0 else 0
+    cash_consumption_percent = (trade_value / old_usdt_value * 100) if old_usdt_value > 0 else 0
+
+    safe_journey_id = sanitize_markdown_v2(journey_id)
+
+    msg = f"*🎯 يوميات المحفظة: بناء مركز استراتيجي \\| الرحلة \\#{safe_journey_id}*\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "تم تخصيص جزء من رأس المال لمركز جديد في *أصل رقمي* \\(سيتم الكشف عنه لاحقاً عند تحقيق أول هدف\\)\\.\n\n"
+    msg += "الهدف هو التركيز على **المنهجية** وليس الأصل\\.\n\n"
+    msg += "*تحليل التأثير على المحفظة:*\n"
+    msg += f" ▪️ *حجم الصفقة:* تم تخصيص `{sanitize_markdown_v2(format_number(trade_size_percent))}%\` من إجمالي المحفظة\\.\n"
+    msg += f" ▪️ *استهلاك السيولة:* تم استخدام `{sanitize_markdown_v2(format_number(cash_consumption_percent))}%\` من الرصيد النقدي المتاح\\.\n"
+    msg += f" ▪️ *السيولة المتبقية:* أصبحت السيولة النقدية الآن تشكل `{sanitize_markdown_v2(format_number(new_cash_percent))}%\` من المحفظة\\.\n\n"
+    msg += "تابعوا معنا كيف ستتطور هذه الصفقة وكيف تتم إدارتها خطوة بخطوة\\.\n\n"
+    msg += "🌐 لنسخ استراتيجيتنا تلقائياً:\n"
+    msg += "🏦 https://t\\.me/abusalamachart\n\n"
+    msg += "📢 @abusalamachart\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "تحديث آلي من بوت مراقبة النسخ 🤖"
 
     return msg
 
 def format_public_sell(details: dict) -> str:
     """
-    UPGRADED: Focuses on "Value Capture".
+    NEW TEMPLATE V148.5
+    Formats the "REVEAL" message for a partial sell for the public channel.
+    It discloses the asset name for the first time.
     """
     journey_id = details.get('journey_id', 'N/A')
     asset = details.get('asset', 'N/A')
@@ -547,42 +437,46 @@ def format_public_sell(details: dict) -> str:
     amount_change = details.get('amount_change', 0)
     position = details.get('position', {})
 
-    # Calculations
+    # Calculate PnL on the sold part
     avg_buy_price = position.get('avg_buy_price', 0)
     sold_amount = abs(amount_change)
     cost_of_part = avg_buy_price * sold_amount
     pnl_on_part = (price - avg_buy_price) * sold_amount
     pnl_percent_on_part = (pnl_on_part / cost_of_part * 100) if cost_of_part > 0 else 0
-    
-    # Calculate percentage sold
+
+    # Calculate the percentage of the position that was sold
     total_amount_sold_before = position.get('total_amount_sold', 0) - sold_amount
     amount_before_this_sale = position.get('total_amount_bought', 0) - total_amount_sold_before
     sold_percent = (sold_amount / amount_before_this_sale * 100) if amount_before_this_sale > 0 else 0
 
     safe_journey_id = sanitize_markdown_v2(journey_id)
     safe_asset = sanitize_markdown_v2(asset)
-    
-    msg = f"🎯 *تحقيق هدف وكشف العملة \\| الرحلة #{safe_journey_id}*\n"
-    msg += "━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"تتذكرون المركز المجهول؟ لقد أثبتت الاستراتيجية نجاحها\\. العملة هي **{safe_asset}**\\.\n\n"
-    
-    msg += "*📊 تقرير جني الأرباح (Profit Taking):*\n"
-    msg += f"💎 *الأصل:* `{safe_asset}`\n"
-    msg += f"💵 *سعر البيع:* `${sanitize_markdown_v2(format_smart(price))}`\n"
-    msg += f"✂️ *الكمية المخففة:* `{sanitize_markdown_v2(format_number(sold_percent))}%` من المركز\n"
-    msg += f"📈 *العائد المحقق:* `+{sanitize_markdown_v2(format_number(pnl_percent_on_part))}%` 🟢\n\n"
-    
-    msg += "💡 *الوضع الحالي:* قمنا بتأمين جزء من الأرباح وسنستمر في الاحتفاظ بباقي الكمية لموجات صعود أخرى محتملة\\. الانضباط هو سر الاستمرارية\\.\n\n"
-    
-    msg += "🔗 ابدأ رحلة الاستثمار الذكي معنا:\n"
-    msg += "🏦 https://t\\.me/abusalamachart\n"
-    msg += "📢 @abusalamachart"
+
+    msg = f"*⚙️ كشف الرحلة \\#{safe_journey_id} وتحقيق الهدف الأول 🟠*\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "هل تذكرون المركز الاستراتيجي المجهول الذي بدأناه؟\n\n"
+    msg += f"يسرنا الكشف أنه كان لعملة: **{safe_asset}**\n\n"
+    msg += "تم اليوم جني أرباح جزئية بنجاح لتأمين العائد\\.\n\n"
+    msg += "*تفاصيل الإجراء:*\n"
+    msg += f" ▪️ *الأصل:* {safe_asset}\n"
+    msg += f" ▪️ *سعر البيع:* \`$${sanitize_markdown_v2(format_smart(price))}\`\n"
+    msg += f" ▪️ *الكمية المباعة:* \`${sanitize_markdown_v2(format_number(sold_percent))}%\` من إجمالي الكمية\\.\n"
+    msg += f" ▪️ *النتيجة:* ربح مُحقق على الجزء المُباع \`+{sanitize_markdown_v2(format_number(pnl_percent_on_part))}%\` 🟢\\.\n"
+    msg += " ▪️ *الحالة:* ما زلنا نحتفظ بالجزء المتبقي من المركز\\.\n\n"
+    msg += "هذا هو جوهر استراتيجيتنا: الدخول المنضبط، والخروج عند تحقيق الأهداف\\.\n\n"
+    msg += "🌐 هل تريد تطبيق نفس المنهجية على محفظتك؟\n"
+    msg += "🏦 https://t\\.me/abusalamachart\n\n"
+    msg += "📢 @abusalamachart\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "تحديث آلي من بوت مراقبة النسخ 🤖"
 
     return msg
 
 def format_public_close(details: dict) -> str:
     """
-    UPGRADED: Detailed Performance Report.
+    NEW TEMPLATE V148.5
+    Formats the FINAL report for a closed position for the public channel.
+    It provides a full summary of the now-known journey.
     """
     journey_id = details.get('journey_id', 'N/A')
     asset = details.get('asset', 'N/A')
@@ -595,99 +489,90 @@ def format_public_close(details: dict) -> str:
     safe_journey_id = sanitize_markdown_v2(journey_id)
     safe_asset = sanitize_markdown_v2(asset)
 
-    msg = f"🏆 *اكتمال الرحلة #{safe_journey_id} \\| تقرير الأداء النهائي*\n"
-    msg += "━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"تم إغلاق ملف الاستثمار في **{safe_asset}** بشكل كامل\\. إليكم ملخص الأداء:\n\n"
-    
-    msg += "*📊 بطاقة الأداء (Scorecard):*\n"
-    msg += f"🔹 *الأصل:* `{safe_asset}`\n"
-    msg += f"⏱ *فترة الاحتفاظ:* `{sanitize_markdown_v2(format_number(duration_days, 1))} أيام`\n"
-    msg += f"📉 *متوسط الدخول:* `${sanitize_markdown_v2(format_smart(avg_buy_price))}`\n"
-    msg += f"📈 *متوسط الخروج:* `${sanitize_markdown_v2(format_smart(avg_sell_price))}`\n"
-    msg += "━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"💰 *صافي العائد (ROI):* `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%` 🟢\n"
-    msg += "━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    msg += "🎓 *الخلاصة:* استراتيجية الدخول والخروج المتدرج أثبتت كفاءتها في استخلاص القيمة من السوق\\. \n\n"
-    
-    msg += "🚀 لا تفوت الرحلة القادمة، انضم للنسخ الآن:\n"
-    msg += "🏦 https://t\\.me/abusalamachart\n"
-    msg += "📢 @abusalamachart"
+    msg = f"*🏆 النتيجة النهائية للرحلة \\#{safe_journey_id}: {safe_asset} ✅*\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"من البداية المجهولة إلى النهاية الرابحة، هذه هي الحصيلة الكاملة لصفقة **{safe_asset}**\\.\n\n"
+    msg += "*ملخص أداء الصفقة:*\n"
+    msg += f" ▪️ *متوسط سعر الدخول:* \`$${sanitize_markdown_v2(format_smart(avg_buy_price))}\`\n"
+    msg += f" ▪️ *متوسط سعر الخروج:* \`$${sanitize_markdown_v2(format_smart(avg_sell_price))}\`\n"
+    msg += f" ▪️ *العائد النهائي \\(ROI\\):* \`${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%\` 🟢\n"
+    msg += f" ▪️ *مدة الصفقة:* \`${sanitize_markdown_v2(format_number(duration_days, 1))} أيام\`\n\n"
+    msg += "النتائج تتحدث عن نفسها\\. هذه هي قوة الاستراتيجية والانضباط\\. نبارك لكل من يثق في منهجيتنا\\.\n\n"
+    msg += "هل تريد أن تكون هذه نتيجتك القادمة دون عناء؟ انضم الآن وانسخ جميع رحلاتنا القادمة تلقائيًا\\.\n\n"
+    msg += "🌐 ابدأ النسخ المباشر من هنا:\n"
+    msg += "🏦 https://t\\.me/abusalamachart\n\n"
+    msg += "📢 @abusalamachart\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "تحديث آلي من بوت مراقبة النسخ 🤖"
 
     return msg
 
 def format_closed_trade_review(trade: dict, current_price: float) -> str:
-    # Calculations
-    actual_pnl_percent = trade['pnl_percent']
+    actual_pnl_sign = '+' if trade['pnl'] >= 0 else ''
+    actual_emoji = '🟢' if trade['pnl'] >= 0 else '🔴'
     hypothetical_pnl = (current_price - trade['avg_buy_price']) * trade['quantity']
     hypothetical_pnl_percent = ((hypothetical_pnl / (trade['avg_buy_price'] * trade['quantity'])) * 100) if trade['avg_buy_price'] > 0 else 0
+    hypothetical_pnl_sign = '+' if hypothetical_pnl >= 0 else ''
+    hypothetical_emoji = '🟢' if hypothetical_pnl >= 0 else '🔴'
+    price_change_since_close = current_price - trade['avg_sell_price']
+    price_change_percent = ((price_change_since_close / trade['avg_sell_price']) * 100) if trade['avg_sell_price'] > 0 else 0
+    change_sign = '⬆️' if price_change_since_close >= 0 else '⬇️'
     
-    diff_percent = actual_pnl_percent - hypothetical_pnl_percent
-    decision_quality = "✅ قرار سليم (تجنبنا هبوط)" if diff_percent > 0 else "⚠️ خروج مبكر (فوتنا ربح)"
-    
-    pnl_sign = '+' if actual_pnl_percent >= 0 else ''
-    
-    return (f"🔍 *تحليل ما بعد الإغلاق \\| Case Study*\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🏷 *العملة:* `{sanitize_markdown_v2(trade['asset'])}`\n"
-            f"💵 *سعر الخروج:* `{sanitize_markdown_v2(format_smart(trade['avg_sell_price']))}`\n"
-            f"💵 *السعر الحالي:* `{sanitize_markdown_v2(format_smart(current_price))}`\n\n"
-            
-            f"*⚖️ المقارنة المعيارية:*\n"
-            f"▪️ *أداؤنا الفعلي:* `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(actual_pnl_percent))}%`\n"
-            f"▪️ *لو استمرينا:* `{sanitize_markdown_v2(format_number(hypothetical_pnl_percent))}%`\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📝 *الحكم:* {sanitize_markdown_v2(decision_quality)}")
+    conclusion = ("*التقييم:* 📈 السعر واصل الصعود، كان ممكن ربح أكبر" 
+                  if price_change_since_close > 0 
+                  else "*التقييم:* ✅ قرار ممتاز، السعر انخفض بعد الخروج")
+
+    return (f"*🔍 مراجعة صفقة مغلقة \\| {sanitize_markdown_v2(trade['asset'])}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"*الأداء الفعلي للصفقة:*\n"
+            f"  \\- *سعر الشراء:* `${sanitize_markdown_v2(format_smart(trade['avg_buy_price']))}`\n"
+            f"  \\- *سعر البيع:* `${sanitize_markdown_v2(format_smart(trade['avg_sell_price']))}`\n"
+            f"  \\- *النتيجة:* `{sanitize_markdown_v2(actual_pnl_sign)}{sanitize_markdown_v2(format_number(trade['pnl']))}` {actual_emoji}\n"
+            f"  \\- *العائد:* `{sanitize_markdown_v2(actual_pnl_sign)}{sanitize_markdown_v2(format_number(trade['pnl_percent']))}%`\n\n"
+            f"*لو بقيت الصفقة مفتوحة:*\n"
+            f"  \\- *السعر الحالي:* `${sanitize_markdown_v2(format_smart(current_price))}`\n"
+            f"  \\- *النتيجة الحالية:* `{sanitize_markdown_v2(hypothetical_pnl_sign)}{sanitize_markdown_v2(format_number(hypothetical_pnl))}` {hypothetical_emoji}\n"
+            f"  \\- *العائد الحالي:* `{sanitize_markdown_v2(hypothetical_pnl_sign)}{sanitize_markdown_v2(format_number(hypothetical_pnl_percent))}%`\n\n"
+            f"*تحليل قرار الخروج:*\n"
+            f"  \\- *حركة السعر منذ الإغلاق:* `{sanitize_markdown_v2(format_number(price_change_percent))}%` {change_sign}\n"
+            f"  \\- {conclusion}")
 
 async def format_daily_copy_report() -> str:
     twenty_four_hours_ago = datetime.now() - timedelta(days=1)
     collection = await get_collection('trade_history')
     cursor = collection.find({'closed_at': {'$gte': twenty_four_hours_ago}})
     closed_trades = await cursor.to_list(length=None)
-    
+    if not closed_trades:
+        return "📊 لم يتم إغلاق أي صفقات في الـ 24 ساعة الماضية\\."
+
     today = datetime.now()
     date_string = today.strftime('%d/%m/%Y')
-    
-    if not closed_trades:
-        return f"📅 *الملخص اليومي* \\| {sanitize_markdown_v2(date_string)}\n\n💤 لم يتم تسجيل إغلاقات جديدة خلال الـ 24 ساعة الماضية\\. السوق في مرحلة مراقبة\\."
-
-    report = f"📰 *Horus Daily Digest \\| نشرة الأداء اليومي*\n"
-    report += f"🗓 التاريخ: `{sanitize_markdown_v2(date_string)}`\n"
-    report += "━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
+    report = f"📊 تقرير النسخ اليومي – خلال الـ24 ساعة الماضية\n🗓 التاريخ: {date_string}\n\n"
     total_pnl_weighted_sum = 0
     total_weight = 0
-    wins = 0
-    
     for trade in closed_trades:
-        if 'pnl_percent' not in trade: continue
-        
-        pnl = trade['pnl_percent']
-        emoji = '🟢' if pnl >= 0 else '🔴'
-        pnl_sign = '+' if pnl >= 0 else ''
-        if pnl > 0: wins += 1
-            
-        report += f"{emoji} *{sanitize_markdown_v2(trade['asset'])}* ➔ `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl))}%`\n"
-        
-        if trade.get('entry_capital_percent', 0) > 0:
-            total_pnl_weighted_sum += pnl * trade['entry_capital_percent']
+        if 'pnl_percent' not in trade or 'entry_capital_percent' not in trade:
+            continue
+        result_emoji = '🔼' if trade['pnl_percent'] >= 0 else '🔽'
+        pnl_sign = '+' if trade['pnl_percent'] >= 0 else ''
+        report += (f"🔸 اسم العملة: {trade['asset']}\n"
+                   f"🔸 نسبة الدخول من رأس المال: {format_number(trade['entry_capital_percent'])}%\n"
+                   f"🔸 متوسط سعر الشراء: {format_smart(trade['avg_buy_price'])}\n"
+                   f"🔸 سعر الخروج: {format_smart(trade['avg_sell_price'])}\n"
+                   f"🔸 نسبة الخروج من الكمية: {format_number(trade.get('exit_quantity_percent', 100))}% \n"
+                   f"🔸 النتيجة: {pnl_sign}{format_number(trade['pnl_percent'])}% {result_emoji}\n\n")
+        if trade['entry_capital_percent'] > 0:
+            total_pnl_weighted_sum += trade['pnl_percent'] * trade['entry_capital_percent']
             total_weight += trade['entry_capital_percent']
-
-    # Calculate Weighted Average PnL for the Copy Service
-    daily_roi = total_pnl_weighted_sum / total_weight if total_weight > 0 else 0
-    roi_sign = '+' if daily_roi >= 0 else ''
-    roi_emoji = '📈' if daily_roi >= 0 else '📉'
     
-    win_rate = (wins / len(closed_trades) * 100) if closed_trades else 0
-    
-    report += "\n━━━━━━━━━━━━━━━━━━━━━\n"
-    report += f"📊 *مؤشرات اليوم:*\n"
-    report += f"✅ *نسبة النجاح:* `{sanitize_markdown_v2(format_number(win_rate, 0))}%`\n"
-    report += f"💰 *صافي عائد المحفظة:* `{sanitize_markdown_v2(roi_sign)}{sanitize_markdown_v2(format_number(daily_roi, 2))}%` {roi_emoji}\n\n"
-    
-    report += "🚀 *الخلاصة:* استمرارية في الأداء مع التزام تام بالخطة\\. انضم الآن لركب الرابحين\\.\n\n"
-    report += "🌐 *رابط النسخ المباشر:*\n🏦 https://t\\.me/abusalamachart"
-    
+    total_pnl = total_pnl_weighted_sum / total_weight if total_weight > 0 else 0
+    total_pnl_emoji = '📈' if total_pnl >= 0 else '📉'
+    total_pnl_sign = '+' if total_pnl >= 0 else ''
+    safe_link = "https://t\\.me/abusalamachart"
+    report += (f"إجمالي الربح الحالي خدمة النسخ: {total_pnl_sign}{format_number(total_pnl, 2)}% {total_pnl_emoji}\n\n"
+               f"✍️ يمكنك الدخول في أي وقت تراه مناسب، الخدمة مفتوحة للجميع\n\n"
+               f"📢 قناة التحديثات الرسمية:\n@abusalamachart\n\n"
+               f"🌐 رابط النسخ المباشر:\n🏦 {safe_link}")
     return report
 
 # =================================================================
@@ -758,11 +643,11 @@ async def update_position_and_analyze(asset: str, amount_change: float, price: f
     return {'analysis_result': analysis_result}
 
 # =================================================================
-# BALANCE MONITORING (FIXED & SILENT MODE ADDED)
+# BALANCE MONITORING
 # =================================================================
 is_processing_balance = False
 
-async def monitor_balance_changes(bot: Bot, silent_mode: bool = False):
+async def monitor_balance_changes(bot: Bot):
     global is_processing_balance
     if is_processing_balance:
         return
@@ -771,23 +656,21 @@ async def monitor_balance_changes(bot: Bot, silent_mode: bool = False):
         previous_state = await load_balance_state()
         previous_balances = previous_state.get('balances', {})
         current_balance = await okx_adapter.get_balance_for_comparison()
-        
         if not current_balance:
-            return # Skip if OKX fails
+            raise Exception("Failed to fetch balance")
 
         prices = await get_cached_market_prices()
         if 'error' in prices:
-            return # Skip if prices fail
+            raise Exception("Failed to fetch prices")
         
         portfolio_data = await okx_adapter.get_portfolio(prices)
         if 'error' in portfolio_data:
-            return
+            raise Exception(portfolio_data['error'])
 
         new_assets = portfolio_data['assets']
         new_total_value = portfolio_data['total']
         new_usdt_value = portfolio_data['usdt_value']
 
-        # If first run ever (empty DB), just save and exit silently
         if not previous_balances:
             await save_balance_state({'balances': current_balance, 'total_value': new_total_value, 'usdt_value': new_usdt_value})
             is_processing_balance = False
@@ -797,88 +680,79 @@ async def monitor_balance_changes(bot: Bot, silent_mode: bool = False):
         state_needs_update = False
         
         for asset in all_assets:
-            if asset == 'USDT': continue
+            if asset == 'USDT':
+                continue
             
             prev_amount = previous_balances.get(asset, 0)
             curr_amount = current_balance.get(asset, 0)
             difference = curr_amount - prev_amount
             price_data = prices.get(f"{asset}-USDT", {})
             
-            # Filter dust (less than 5 USD value change)
-            if not price_data or abs(difference * price_data.get('price', 0)) < 5:
+            if not price_data or abs(difference * price_data.get('price', 0)) < 5:  # Increased threshold to 5 USD to reduce noise
                 continue
 
-            state_needs_update = True # Mark that we found a change
-            
-            # If we are in silent mode (startup sync), don't process logic, just mark for save
-            if silent_mode:
-                continue
-
+            state_needs_update = True
             old_total_value = previous_state.get('total_value', 0)
             old_usdt_value = previous_state.get('usdt_value', 0)
+            result = await update_position_and_analyze(asset, difference, price_data['price'], curr_amount, old_total_value)
+            analysis_result = result['analysis_result']
             
-            try:
-                # Analyze logic
-                result = await update_position_and_analyze(asset, difference, price_data['price'], curr_amount, old_total_value)
-                analysis_result = result['analysis_result']
+            if analysis_result['type'] == 'none':
+                continue
                 
-                if analysis_result['type'] == 'none':
-                    continue
-                    
-                trade_value = abs(difference) * price_data['price']
-                new_asset_data = next((a for a in new_assets if a['asset'] == asset), None)
-                new_asset_value = new_asset_data['value'] if new_asset_data else 0
-                new_asset_weight = (new_asset_value / new_total_value * 100) if new_total_value > 0 else 0
-                new_cash_percent = (new_usdt_value / new_total_value * 100) if new_total_value > 0 else 0
-                
-                position = analysis_result['data'].get('position', {})
-                journey_id = position.get('journey_id', 'N/A')
-                
-                base_details = {
-                    'asset': asset, 'price': price_data['price'], 'amount_change': difference,
-                    'trade_value': trade_value, 'old_total_value': old_total_value,
-                    'old_usdt_value': old_usdt_value,
-                    'new_asset_weight': new_asset_weight, 'new_usdt_value': new_usdt_value,
-                    'new_cash_percent': new_cash_percent, 'position': position,
-                    'journey_id': journey_id
-                }
-                
-                # Anti-spam check
-                action_key = analysis_result['type']
-                if not await can_send_notification(asset, action_key, trade_value):
-                    continue
-                
-                # Send Messages (Protected Block)
-                settings = await load_settings()
-                if analysis_result['type'] == 'buy':
-                    await bot.send_message(AUTHORIZED_USER_ID, format_private_buy(base_details), parse_mode='MarkdownV2')
-                    if settings.get('auto_post_to_channel', False):
-                        await bot.send_message(TARGET_CHANNEL_ID, format_public_buy(base_details), parse_mode='MarkdownV2')
-                
-                elif analysis_result['type'] == 'sell':
-                    await bot.send_message(AUTHORIZED_USER_ID, format_private_sell(base_details), parse_mode='MarkdownV2')
-                    if settings.get('auto_post_to_channel', False):
-                        await bot.send_message(TARGET_CHANNEL_ID, format_public_sell(base_details), parse_mode='MarkdownV2')
-
-                elif analysis_result['type'] == 'close':
-                    await bot.send_message(AUTHORIZED_USER_ID, format_private_close(analysis_result['data']), parse_mode='MarkdownV2')
-                    if settings.get('auto_post_to_channel', False):
-                        await bot.send_message(TARGET_CHANNEL_ID, format_public_close(analysis_result['data']), parse_mode='MarkdownV2')
+            trade_value = abs(difference) * price_data['price']
+            new_asset_data = next((a for a in new_assets if a['asset'] == asset), None)
+            new_asset_value = new_asset_data['value'] if new_asset_data else 0
+            new_asset_weight = (new_asset_value / new_total_value * 100) if new_total_value > 0 else 0
+            new_cash_percent = (new_usdt_value / new_total_value * 100) if new_total_value > 0 else 0
             
-            except Exception as e:
-                # IMPORTANT: If message sending fails, LOG IT but continue so we SAVE the state!
-                logger.error(f"⚠️ Notification failed for {asset} but state will be updated: {e}")
+            position = analysis_result['data'].get('position', {})
+            journey_id = position.get('journey_id', 'N/A')
+            
+            base_details = {
+                'asset': asset, 'price': price_data['price'], 'amount_change': difference,
+                'trade_value': trade_value, 'old_total_value': old_total_value,
+                'old_usdt_value': old_usdt_value,  # Added for new template
+                'new_asset_weight': new_asset_weight, 'new_usdt_value': new_usdt_value,
+                'new_cash_percent': new_cash_percent, 'position': position,
+                'journey_id': journey_id  # Added journey_id
+            }
+            settings = await load_settings()
+            
+            # Anti-spam check before sending
+            action_key = 'buy' if analysis_result['type'] == 'buy' else 'sell' if analysis_result['type'] == 'sell' else 'close'
+            if not await can_send_notification(asset, action_key, trade_value):
+                continue
+            
+            if analysis_result['type'] == 'buy':
+                private_message = format_private_buy(base_details)
+                public_message = format_public_buy(base_details)
+                await bot.send_message(AUTHORIZED_USER_ID, private_message, parse_mode='MarkdownV2')
+                if settings.get('auto_post_to_channel', False):
+                    await bot.send_message(TARGET_CHANNEL_ID, public_message, parse_mode='MarkdownV2')
+            
+            elif analysis_result['type'] == 'sell':
+                private_message = format_private_sell(base_details)
+                public_message = format_public_sell(base_details)
+                await bot.send_message(AUTHORIZED_USER_ID, private_message, parse_mode='MarkdownV2')
+                if settings.get('auto_post_to_channel', False):
+                    await bot.send_message(TARGET_CHANNEL_ID, public_message, parse_mode='MarkdownV2')
 
-        # Always save state if changes were detected, even if silent or if sending failed
+            elif analysis_result['type'] == 'close':
+                private_message = format_private_close(analysis_result['data'])
+                public_message = format_public_close(analysis_result['data'])
+                if settings.get('auto_post_to_channel', False):
+                    await bot.send_message(TARGET_CHANNEL_ID, public_message, parse_mode='MarkdownV2')
+                await bot.send_message(AUTHORIZED_USER_ID, private_message, parse_mode='MarkdownV2')
+
         if state_needs_update:
             await save_balance_state({'balances': current_balance, 'total_value': new_total_value, 'usdt_value': new_usdt_value})
-            if silent_mode:
-                logger.info("Silent sync completed. Database updated.")
     
     except Exception as e:
         logger.error(f"Error in monitor_balance_changes: {e}")
     finally:
         is_processing_balance = False
+
 # =================================================================
 # BACKGROUND JOBS
 # =================================================================
@@ -1139,7 +1013,7 @@ async def main():
     # Start background tasks
     asyncio.create_task(connect_to_okx_socket(bot))
     asyncio.create_task(balance_polling_task(bot))
-    
+    # Schedule daily jobs
     async def daily_job_scheduler():
         while True:
             await run_daily_jobs()
@@ -1153,17 +1027,13 @@ async def main():
     asyncio.create_task(daily_job_scheduler())
     asyncio.create_task(daily_report_scheduler())
     
-    # --- FIX: Silent Sync on Startup ---
-    logger.info("⏳ Performing initial silent sync (No Notifications)...")
-    # This calls the monitor function in SILENT mode to update DB only
-    await monitor_balance_changes(bot, silent_mode=True)
-    logger.info("✅ Initial sync done.")
-    # -----------------------------------
+    # Start initial jobs
+    await run_daily_jobs()
     
     # Send startup message
     await bot.send_message(
         AUTHORIZED_USER_ID,
-        "✅ *هوروس يعمل الآن (تمت المزامنة الصامتة)*",
+        "✅ *البوت جاهز ويعمل الآن بشكل كامل*",
         parse_mode='MarkdownV2'
     )
     
@@ -1172,3 +1042,13 @@ async def main():
     finally:
         await okx_adapter.close_session()
         await bot.session.close()
+
+
+if __name__ == "__main__":
+    import threading
+    threading.Thread(
+        target=lambda: uvicorn.run(app, host="0.0.0.0", port=PORT),
+        daemon=True
+    ).start()
+    
+    asyncio.run(main())
