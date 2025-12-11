@@ -678,6 +678,16 @@ async def monitor_balance_changes(bot: Bot):
         all_assets = set(list(previous_balances.keys()) + list(current_balance.keys()))
         state_needs_update = False
         
+        # دالة مساعدة للإرسال الآمن تمنع توقف البوت
+        async def safe_send(chat_id, text):
+            try:
+                await bot.send_message(chat_id, text, parse_mode='MarkdownV2')
+            except Exception as e:
+                logger.error(f"Markdown Error: {e} - Sending as plain text")
+                # تنظيف النص من رموز المارك داون وإرساله كنص عادي
+                clean_text = text.replace('`', '').replace('*', '').replace('\\', '').replace('_', ' ')
+                await bot.send_message(chat_id, clean_text)
+
         for asset in all_assets:
             if asset == 'USDT':
                 continue
@@ -687,7 +697,7 @@ async def monitor_balance_changes(bot: Bot):
             difference = curr_amount - prev_amount
             price_data = prices.get(f"{asset}-USDT", {})
             
-            if not price_data or abs(difference * price_data.get('price', 0)) < 5:  # Increased threshold to 5 USD to reduce noise
+            if not price_data or abs(difference * price_data.get('price', 0)) < 5:
                 continue
 
             state_needs_update = True
@@ -711,38 +721,38 @@ async def monitor_balance_changes(bot: Bot):
             base_details = {
                 'asset': asset, 'price': price_data['price'], 'amount_change': difference,
                 'trade_value': trade_value, 'old_total_value': old_total_value,
-                'old_usdt_value': old_usdt_value,  # Added for new template
+                'old_usdt_value': old_usdt_value,
                 'new_asset_weight': new_asset_weight, 'new_usdt_value': new_usdt_value,
                 'new_cash_percent': new_cash_percent, 'position': position,
-                'journey_id': journey_id  # Added journey_id
+                'journey_id': journey_id
             }
             settings = await load_settings()
             
-            # Anti-spam check before sending
             action_key = 'buy' if analysis_result['type'] == 'buy' else 'sell' if analysis_result['type'] == 'sell' else 'close'
             if not await can_send_notification(asset, action_key, trade_value):
                 continue
             
+            # 👇 استخدام الإرسال الآمن هنا
             if analysis_result['type'] == 'buy':
                 private_message = format_private_buy(base_details)
                 public_message = format_public_buy(base_details)
-                await bot.send_message(AUTHORIZED_USER_ID, private_message, parse_mode='MarkdownV2')
+                await safe_send(AUTHORIZED_USER_ID, private_message)
                 if settings.get('auto_post_to_channel', False):
-                    await bot.send_message(TARGET_CHANNEL_ID, public_message, parse_mode='MarkdownV2')
+                    await safe_send(TARGET_CHANNEL_ID, public_message)
             
             elif analysis_result['type'] == 'sell':
                 private_message = format_private_sell(base_details)
                 public_message = format_public_sell(base_details)
-                await bot.send_message(AUTHORIZED_USER_ID, private_message, parse_mode='MarkdownV2')
+                await safe_send(AUTHORIZED_USER_ID, private_message)
                 if settings.get('auto_post_to_channel', False):
-                    await bot.send_message(TARGET_CHANNEL_ID, public_message, parse_mode='MarkdownV2')
+                    await safe_send(TARGET_CHANNEL_ID, public_message)
 
             elif analysis_result['type'] == 'close':
                 private_message = format_private_close(analysis_result['data'])
                 public_message = format_public_close(analysis_result['data'])
                 if settings.get('auto_post_to_channel', False):
-                    await bot.send_message(TARGET_CHANNEL_ID, public_message, parse_mode='MarkdownV2')
-                await bot.send_message(AUTHORIZED_USER_ID, private_message, parse_mode='MarkdownV2')
+                    await safe_send(TARGET_CHANNEL_ID, public_message)
+                await safe_send(AUTHORIZED_USER_ID, private_message)
 
         if state_needs_update:
             await save_balance_state({'balances': current_balance, 'total_value': new_total_value, 'usdt_value': new_usdt_value})
@@ -751,7 +761,6 @@ async def monitor_balance_changes(bot: Bot):
         logger.error(f"Error in monitor_balance_changes: {e}")
     finally:
         is_processing_balance = False
-
 # =================================================================
 # BACKGROUND JOBS
 # =================================================================
