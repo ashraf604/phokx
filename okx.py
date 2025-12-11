@@ -337,38 +337,33 @@ def get_weight_class(percent: float) -> str:
     return "مركز استراتيجي (Heavy)"
 
 # =================================================================
-# FORMATTING FUNCTIONS (UPGRADED)
+# FORMATTING FUNCTIONS (FIXED MARKDOWN)
 # =================================================================
 async def format_portfolio_msg(assets: list, total: float, capital: float) -> str:
     positions = await load_positions()
     usdt_asset = next((a for a in assets if a['asset'] == 'USDT'), {'value': 0})
     
-    # Calculations
     cash_percent = (usdt_asset['value'] / total * 100) if total > 0 else 0
     invested_percent = 100 - cash_percent
     pnl = total - capital if capital > 0 else 0
     pnl_percent = (pnl / capital * 100) if capital > 0 else 0
     
-    # Signs and Emojis
     pnl_sign = '+' if pnl >= 0 else ''
     pnl_emoji = '🟢' if pnl >= 0 else '🔴'
     
-    # Progress Bars
     cash_bar = create_progress_bar(cash_percent, 8)
     invested_bar = create_progress_bar(invested_percent, 8)
 
-    # Header
     caption = f"📊 *التقرير المالي للمحفظة* \\| {datetime.now().strftime('%d/%m')}\n"
     caption += "━━━━━━━━━━━━━━━━━━━━━\n\n"
     
-    # Summary Section
-    caption += f"💰 *صافي الأصول (NAV):* `${sanitize_markdown_v2(format_number(total))}`\n"
+    caption += f"💰 *صافي الأصول \\(NAV\\):* `${sanitize_markdown_v2(format_number(total))}`\n"
     if capital > 0:
         caption += f"📉 *الأداء التراكمي:* {pnl_emoji} `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%`\n"
         caption += f"💵 *الربح/الخسارة:* `${sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl))}`\n"
     
-    # Exposure Section
-    caption += f"\n⚖️ *توزيع السيولة (Exposure):*\n"
+    # FIX: Escaped parentheses \(Exposure\)
+    caption += f"\n⚖️ *توزيع السيولة \\(Exposure\\):*\n"
     caption += f"سيولة `{cash_bar}` `{sanitize_markdown_v2(format_number(cash_percent))}%`\n"
     caption += f"أصول  `{invested_bar}` `{sanitize_markdown_v2(format_number(invested_percent))}%`\n"
     
@@ -388,7 +383,6 @@ async def format_portfolio_msg(assets: list, total: float, capital: float) -> st
         caption += f"   ├ الوزن: `{sanitize_markdown_v2(format_number(percent))}%`\n"
         caption += f"   └ القيمة: `${sanitize_markdown_v2(format_number(asset['value']))}`"
         
-        # Add PnL if position exists
         if position.get('avg_buy_price', 0) > 0:
             asset_pnl = asset['value'] - (position['avg_buy_price'] * asset['amount'])
             cost = position['avg_buy_price'] * asset['amount']
@@ -399,35 +393,112 @@ async def format_portfolio_msg(assets: list, total: float, capital: float) -> st
         
         caption += "\n\n"
 
-    caption += f"💳 *رصيد الكاش (USDT):* `${sanitize_markdown_v2(format_number(usdt_asset['value']))}`"
+    caption += f"💳 *رصيد الكاش \\(USDT\\):* `${sanitize_markdown_v2(format_number(usdt_asset['value']))}`"
     return caption
 
-# Private messages (Admin only) - Kept concise for quick reading
-def format_private_buy(details: dict) -> str:
-    return (f"📥 *تنفيذ شراء آلي \\| {sanitize_markdown_v2(details['asset'])}*\n"
-            f"──────────────\n"
-            f"💵 السعر: `{sanitize_markdown_v2(format_smart(details['price']))}`\n"
-            f"📦 الكمية: `{sanitize_markdown_v2(format_number(abs(details['amount_change']), 4))}`\n"
-            f"💰 القيمة: `{sanitize_markdown_v2(format_number(details['trade_value']))}$`\n"
-            f"⚖️ الوزن الجديد: `{sanitize_markdown_v2(format_number(details['new_asset_weight']))}%`")
+def format_public_buy(details: dict) -> str:
+    journey_id = details.get('journey_id', 'N/A')
+    trade_value = details.get('trade_value', 0)
+    old_total_value = details.get('old_total_value', 0)
+    
+    trade_size_percent = (trade_value / old_total_value * 100) if old_total_value > 0 else 0
+    weight_class = get_weight_class(trade_size_percent)
+    risk_bar = create_progress_bar(trade_size_percent, 10)
+    
+    safe_journey_id = sanitize_markdown_v2(journey_id)
+    safe_class = sanitize_markdown_v2(weight_class)
 
-def format_private_sell(details: dict) -> str:
-    return (f"📤 *تنفيذ بيع آلي \\| {sanitize_markdown_v2(details['asset'])}*\n"
-            f"──────────────\n"
-            f"💵 السعر: `{sanitize_markdown_v2(format_smart(details['price']))}`\n"
-            f"📦 الكمية: `{sanitize_markdown_v2(format_number(abs(details['amount_change']), 4))}`\n"
-            f"💰 القيمة: `{sanitize_markdown_v2(format_number(details['trade_value']))}$`\n"
-            f"⚖️ الوزن الجديد: `{sanitize_markdown_v2(format_number(details['new_asset_weight']))}%`")
+    msg = f"🛡 *Horus Alpha \\| مركز استراتيجي جديد*\n"
+    msg += f"🆔 الرحلة: `#{safe_journey_id}`\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += "رصدت الخوارزميات فرصة استثمارية ذات احتمالية عالية، وتم البدء في بناء مركز جديد في *أصل رقمي كامن*\\.\n\n"
+    
+    # FIX: Escaped parentheses \(Allocation\)
+    msg += "*⚙️ بيانات التخصيص \\(Allocation\\):*\n"
+    msg += f"▪️ *التصنيف:* {safe_class}\n"
+    msg += f"▪️ *حجم الدخول:* `{sanitize_markdown_v2(format_number(trade_size_percent))}%` من المحفظة\n"
+    msg += f"▪️ *المخاطرة:* `{risk_bar}`\n\n"
+    
+    msg += "🔭 *النظرة الفنية:* نركز هنا على الزخم الصاعد المتوقع مع الحفاظ على إدارة صارمة للمخاطر\\. سيتم الكشف عن اسم الأصل عند تأكيد الاتجاه وتحقيق الهدف الأول\\.\n\n"
+    
+    msg += "⚡️ لنسخ هذه الصفقة ومثيلاتها تلقائياً:\n"
+    msg += "🏦 https://t\\.me/abusalamachart\n"
+    msg += "📢 @abusalamachart"
 
-def format_private_close(details: dict) -> str:
-    pnl_sign = '+' if details['pnl'] >= 0 else ''
-    emoji = '🟢' if details['pnl'] >= 0 else '🔴'
-    return (f"🏁 *إغلاق مركز بالكامل \\| {sanitize_markdown_v2(details['asset'])}*\n"
-            f"──────────────\n"
-            f"📉 النتيجة: {emoji} `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(details['pnl']))}$`\n"
-            f"📊 العائد: `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(details['pnl_percent']))}%`\n"
-            f"⏱ المدة: `{sanitize_markdown_v2(format_number(details['duration_days'], 1))} يوم`")
+    return msg
 
+def format_public_sell(details: dict) -> str:
+    journey_id = details.get('journey_id', 'N/A')
+    asset = details.get('asset', 'N/A')
+    price = details.get('price', 0)
+    amount_change = details.get('amount_change', 0)
+    position = details.get('position', {})
+
+    avg_buy_price = position.get('avg_buy_price', 0)
+    sold_amount = abs(amount_change)
+    cost_of_part = avg_buy_price * sold_amount
+    pnl_on_part = (price - avg_buy_price) * sold_amount
+    pnl_percent_on_part = (pnl_on_part / cost_of_part * 100) if cost_of_part > 0 else 0
+    
+    total_amount_sold_before = position.get('total_amount_sold', 0) - sold_amount
+    amount_before_this_sale = position.get('total_amount_bought', 0) - total_amount_sold_before
+    sold_percent = (sold_amount / amount_before_this_sale * 100) if amount_before_this_sale > 0 else 0
+
+    safe_journey_id = sanitize_markdown_v2(journey_id)
+    safe_asset = sanitize_markdown_v2(asset)
+    
+    msg = f"🎯 *تحقيق هدف وكشف العملة \\| الرحلة #{safe_journey_id}*\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"تتذكرون المركز المجهول؟ لقد أثبتت الاستراتيجية نجاحها\\. العملة هي **{safe_asset}**\\.\n\n"
+    
+    # FIX: Escaped parentheses \(Profit Taking\)
+    msg += "*📊 تقرير جني الأرباح \\(Profit Taking\\):*\n"
+    msg += f"💎 *الأصل:* `{safe_asset}`\n"
+    msg += f"💵 *سعر البيع:* `${sanitize_markdown_v2(format_smart(price))}`\n"
+    msg += f"✂️ *الكمية المخففة:* `{sanitize_markdown_v2(format_number(sold_percent))}%` من المركز\n"
+    msg += f"📈 *العائد المحقق:* `+{sanitize_markdown_v2(format_number(pnl_percent_on_part))}%` 🟢\n\n"
+    
+    msg += "💡 *الوضع الحالي:* قمنا بتأمين جزء من الأرباح وسنستمر في الاحتفاظ بباقي الكمية لموجات صعود أخرى محتملة\\. الانضباط هو سر الاستمرارية\\.\n\n"
+    
+    msg += "🔗 ابدأ رحلة الاستثمار الذكي معنا:\n"
+    msg += "🏦 https://t\\.me/abusalamachart\n"
+    msg += "📢 @abusalamachart"
+
+    return msg
+
+def format_public_close(details: dict) -> str:
+    journey_id = details.get('journey_id', 'N/A')
+    asset = details.get('asset', 'N/A')
+    avg_buy_price = details.get('avg_buy_price', 0)
+    avg_sell_price = details.get('avg_sell_price', 0)
+    pnl_percent = details.get('pnl_percent', 0)
+    duration_days = details.get('duration_days', 0)
+
+    pnl_sign = '+' if pnl_percent >= 0 else ''
+    safe_journey_id = sanitize_markdown_v2(journey_id)
+    safe_asset = sanitize_markdown_v2(asset)
+
+    msg = f"🏆 *اكتمال الرحلة #{safe_journey_id} \\| تقرير الأداء النهائي*\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"تم إغلاق ملف الاستثمار في **{safe_asset}** بشكل كامل\\. إليكم ملخص الأداء:\n\n"
+    
+    # FIX: Escaped parentheses \(Scorecard\) and \(ROI\)
+    msg += "*📊 بطاقة الأداء \\(Scorecard\\):*\n"
+    msg += f"🔹 *الأصل:* `{safe_asset}`\n"
+    msg += f"⏱ *فترة الاحتفاظ:* `{sanitize_markdown_v2(format_number(duration_days, 1))} أيام`\n"
+    msg += f"📉 *متوسط الدخول:* `${sanitize_markdown_v2(format_smart(avg_buy_price))}`\n"
+    msg += f"📈 *متوسط الخروج:* `${sanitize_markdown_v2(format_smart(avg_sell_price))}`\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━\n"
+    msg += f"💰 *صافي العائد \\(ROI\\):* `{sanitize_markdown_v2(pnl_sign)}{sanitize_markdown_v2(format_number(pnl_percent))}%` 🟢\n"
+    msg += "━━━━━━━━━━━━━━━━━━━━━\n\n"
+    
+    msg += "🎓 *الخلاصة:* استراتيجية الدخول والخروج المتدرج أثبتت كفاءتها في استخلاص القيمة من السوق\\. \n\n"
+    
+    msg += "🚀 لا تفوت الرحلة القادمة، انضم للنسخ الآن:\n"
+    msg += "🏦 https://t\\.me/abusalamachart\n"
+    msg += "📢 @abusalamachart"
+
+    return msg
 # =================================================================
 # NEW TEMPLATE V2.0 PRO - Public Channel Functions
 # =================================================================
