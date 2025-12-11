@@ -392,9 +392,7 @@ def format_private_close(details: dict) -> str:
 
 def format_public_buy(details: dict) -> str:
     """
-    NEW TEMPLATE V148.5
-    Formats the ANONYMOUS message for a new buy/position entry for the public channel.
-    Focuses on risk management metrics and introduces a journey ID.
+    NEW TEMPLATE V148.5 - FIXED
     """
     journey_id = details.get('journey_id', 'N/A')
     trade_value = details.get('trade_value', 0)
@@ -413,9 +411,10 @@ def format_public_buy(details: dict) -> str:
     msg += "تم تخصيص جزء من رأس المال لمركز جديد في *أصل رقمي* \\(سيتم الكشف عنه لاحقاً عند تحقيق أول هدف\\)\\.\n\n"
     msg += "الهدف هو التركيز على **المنهجية** وليس الأصل\\.\n\n"
     msg += "*تحليل التأثير على المحفظة:*\n"
-    msg += f" ▪️ *حجم الصفقة:* تم تخصيص `{sanitize_markdown_v2(format_number(trade_size_percent))}%\` من إجمالي المحفظة\\.\n"
-    msg += f" ▪️ *استهلاك السيولة:* تم استخدام `{sanitize_markdown_v2(format_number(cash_consumption_percent))}%\` من الرصيد النقدي المتاح\\.\n"
-    msg += f" ▪️ *السيولة المتبقية:* أصبحت السيولة النقدية الآن تشكل `{sanitize_markdown_v2(format_number(new_cash_percent))}%\` من المحفظة\\.\n\n"
+    # 👇👇 هنا كان الخطأ: تم إزالة الشرطة المائلة الزائدة قبل علامة الإغلاق
+    msg += f" ▪️ *حجم الصفقة:* تم تخصيص `{sanitize_markdown_v2(format_number(trade_size_percent))}%` من إجمالي المحفظة\\.\n"
+    msg += f" ▪️ *استهلاك السيولة:* تم استخدام `{sanitize_markdown_v2(format_number(cash_consumption_percent))}%` من الرصيد النقدي المتاح\\.\n"
+    msg += f" ▪️ *السيولة المتبقية:* أصبحت السيولة النقدية الآن تشكل `{sanitize_markdown_v2(format_number(new_cash_percent))}%` من المحفظة\\.\n\n"
     msg += "تابعوا معنا كيف ستتطور هذه الصفقة وكيف تتم إدارتها خطوة بخطوة\\.\n\n"
     msg += "🌐 لنسخ استراتيجيتنا تلقائياً:\n"
     msg += "🏦 https://t\\.me/abusalamachart\n\n"
