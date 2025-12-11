@@ -687,11 +687,11 @@ async def update_position_and_analyze(asset: str, amount_change: float, price: f
     return {'analysis_result': analysis_result}
 
 # =================================================================
-# BALANCE MONITORING
+# BALANCE MONITORING (FIXED & SILENT MODE ADDED)
 # =================================================================
 is_processing_balance = False
 
-async def monitor_balance_changes(bot: Bot):
+async def monitor_balance_changes(bot: Bot, silent_mode: bool = False):
     global is_processing_balance
     if is_processing_balance:
         return
@@ -700,21 +700,23 @@ async def monitor_balance_changes(bot: Bot):
         previous_state = await load_balance_state()
         previous_balances = previous_state.get('balances', {})
         current_balance = await okx_adapter.get_balance_for_comparison()
+        
         if not current_balance:
-            raise Exception("Failed to fetch balance")
+            return # Skip if OKX fails
 
         prices = await get_cached_market_prices()
         if 'error' in prices:
-            raise Exception("Failed to fetch prices")
+            return # Skip if prices fail
         
         portfolio_data = await okx_adapter.get_portfolio(prices)
         if 'error' in portfolio_data:
-            raise Exception(portfolio_data['error'])
+            return
 
         new_assets = portfolio_data['assets']
         new_total_value = portfolio_data['total']
         new_usdt_value = portfolio_data['usdt_value']
 
+        # If first run ever (empty DB), just save and exit silently
         if not previous_balances:
             await save_balance_state({'balances': current_balance, 'total_value': new_total_value, 'usdt_value': new_usdt_value})
             is_processing_balance = False
@@ -724,79 +726,88 @@ async def monitor_balance_changes(bot: Bot):
         state_needs_update = False
         
         for asset in all_assets:
-            if asset == 'USDT':
-                continue
+            if asset == 'USDT': continue
             
             prev_amount = previous_balances.get(asset, 0)
             curr_amount = current_balance.get(asset, 0)
             difference = curr_amount - prev_amount
             price_data = prices.get(f"{asset}-USDT", {})
             
-            if not price_data or abs(difference * price_data.get('price', 0)) < 5:  # Increased threshold to 5 USD to reduce noise
+            # Filter dust (less than 5 USD value change)
+            if not price_data or abs(difference * price_data.get('price', 0)) < 5:
                 continue
 
-            state_needs_update = True
+            state_needs_update = True # Mark that we found a change
+            
+            # If we are in silent mode (startup sync), don't process logic, just mark for save
+            if silent_mode:
+                continue
+
             old_total_value = previous_state.get('total_value', 0)
             old_usdt_value = previous_state.get('usdt_value', 0)
-            result = await update_position_and_analyze(asset, difference, price_data['price'], curr_amount, old_total_value)
-            analysis_result = result['analysis_result']
             
-            if analysis_result['type'] == 'none':
-                continue
+            try:
+                # Analyze logic
+                result = await update_position_and_analyze(asset, difference, price_data['price'], curr_amount, old_total_value)
+                analysis_result = result['analysis_result']
                 
-            trade_value = abs(difference) * price_data['price']
-            new_asset_data = next((a for a in new_assets if a['asset'] == asset), None)
-            new_asset_value = new_asset_data['value'] if new_asset_data else 0
-            new_asset_weight = (new_asset_value / new_total_value * 100) if new_total_value > 0 else 0
-            new_cash_percent = (new_usdt_value / new_total_value * 100) if new_total_value > 0 else 0
-            
-            position = analysis_result['data'].get('position', {})
-            journey_id = position.get('journey_id', 'N/A')
-            
-            base_details = {
-                'asset': asset, 'price': price_data['price'], 'amount_change': difference,
-                'trade_value': trade_value, 'old_total_value': old_total_value,
-                'old_usdt_value': old_usdt_value,  # Added for new template
-                'new_asset_weight': new_asset_weight, 'new_usdt_value': new_usdt_value,
-                'new_cash_percent': new_cash_percent, 'position': position,
-                'journey_id': journey_id  # Added journey_id
-            }
-            settings = await load_settings()
-            
-            # Anti-spam check before sending
-            action_key = 'buy' if analysis_result['type'] == 'buy' else 'sell' if analysis_result['type'] == 'sell' else 'close'
-            if not await can_send_notification(asset, action_key, trade_value):
-                continue
-            
-            if analysis_result['type'] == 'buy':
-                private_message = format_private_buy(base_details)
-                public_message = format_public_buy(base_details)
-                await bot.send_message(AUTHORIZED_USER_ID, private_message, parse_mode='MarkdownV2')
-                if settings.get('auto_post_to_channel', False):
-                    await bot.send_message(TARGET_CHANNEL_ID, public_message, parse_mode='MarkdownV2')
-            
-            elif analysis_result['type'] == 'sell':
-                private_message = format_private_sell(base_details)
-                public_message = format_public_sell(base_details)
-                await bot.send_message(AUTHORIZED_USER_ID, private_message, parse_mode='MarkdownV2')
-                if settings.get('auto_post_to_channel', False):
-                    await bot.send_message(TARGET_CHANNEL_ID, public_message, parse_mode='MarkdownV2')
+                if analysis_result['type'] == 'none':
+                    continue
+                    
+                trade_value = abs(difference) * price_data['price']
+                new_asset_data = next((a for a in new_assets if a['asset'] == asset), None)
+                new_asset_value = new_asset_data['value'] if new_asset_data else 0
+                new_asset_weight = (new_asset_value / new_total_value * 100) if new_total_value > 0 else 0
+                new_cash_percent = (new_usdt_value / new_total_value * 100) if new_total_value > 0 else 0
+                
+                position = analysis_result['data'].get('position', {})
+                journey_id = position.get('journey_id', 'N/A')
+                
+                base_details = {
+                    'asset': asset, 'price': price_data['price'], 'amount_change': difference,
+                    'trade_value': trade_value, 'old_total_value': old_total_value,
+                    'old_usdt_value': old_usdt_value,
+                    'new_asset_weight': new_asset_weight, 'new_usdt_value': new_usdt_value,
+                    'new_cash_percent': new_cash_percent, 'position': position,
+                    'journey_id': journey_id
+                }
+                
+                # Anti-spam check
+                action_key = analysis_result['type']
+                if not await can_send_notification(asset, action_key, trade_value):
+                    continue
+                
+                # Send Messages (Protected Block)
+                settings = await load_settings()
+                if analysis_result['type'] == 'buy':
+                    await bot.send_message(AUTHORIZED_USER_ID, format_private_buy(base_details), parse_mode='MarkdownV2')
+                    if settings.get('auto_post_to_channel', False):
+                        await bot.send_message(TARGET_CHANNEL_ID, format_public_buy(base_details), parse_mode='MarkdownV2')
+                
+                elif analysis_result['type'] == 'sell':
+                    await bot.send_message(AUTHORIZED_USER_ID, format_private_sell(base_details), parse_mode='MarkdownV2')
+                    if settings.get('auto_post_to_channel', False):
+                        await bot.send_message(TARGET_CHANNEL_ID, format_public_sell(base_details), parse_mode='MarkdownV2')
 
-            elif analysis_result['type'] == 'close':
-                private_message = format_private_close(analysis_result['data'])
-                public_message = format_public_close(analysis_result['data'])
-                if settings.get('auto_post_to_channel', False):
-                    await bot.send_message(TARGET_CHANNEL_ID, public_message, parse_mode='MarkdownV2')
-                await bot.send_message(AUTHORIZED_USER_ID, private_message, parse_mode='MarkdownV2')
+                elif analysis_result['type'] == 'close':
+                    await bot.send_message(AUTHORIZED_USER_ID, format_private_close(analysis_result['data']), parse_mode='MarkdownV2')
+                    if settings.get('auto_post_to_channel', False):
+                        await bot.send_message(TARGET_CHANNEL_ID, format_public_close(analysis_result['data']), parse_mode='MarkdownV2')
+            
+            except Exception as e:
+                # IMPORTANT: If message sending fails, LOG IT but continue so we SAVE the state!
+                logger.error(f"⚠️ Notification failed for {asset} but state will be updated: {e}")
 
+        # Always save state if changes were detected, even if silent or if sending failed
         if state_needs_update:
             await save_balance_state({'balances': current_balance, 'total_value': new_total_value, 'usdt_value': new_usdt_value})
+            if silent_mode:
+                logger.info("Silent sync completed. Database updated.")
     
     except Exception as e:
         logger.error(f"Error in monitor_balance_changes: {e}")
     finally:
         is_processing_balance = False
-
 # =================================================================
 # BACKGROUND JOBS
 # =================================================================
@@ -1057,7 +1068,7 @@ async def main():
     # Start background tasks
     asyncio.create_task(connect_to_okx_socket(bot))
     asyncio.create_task(balance_polling_task(bot))
-    # Schedule daily jobs
+    
     async def daily_job_scheduler():
         while True:
             await run_daily_jobs()
@@ -1071,13 +1082,17 @@ async def main():
     asyncio.create_task(daily_job_scheduler())
     asyncio.create_task(daily_report_scheduler())
     
-    # Start initial jobs
-    await run_daily_jobs()
+    # --- FIX: Silent Sync on Startup ---
+    logger.info("⏳ Performing initial silent sync (No Notifications)...")
+    # This calls the monitor function in SILENT mode to update DB only
+    await monitor_balance_changes(bot, silent_mode=True)
+    logger.info("✅ Initial sync done.")
+    # -----------------------------------
     
     # Send startup message
     await bot.send_message(
         AUTHORIZED_USER_ID,
-        "✅ *البوت جاهز ويعمل الآن بشكل كامل*",
+        "✅ *هوروس يعمل الآن (تمت المزامنة الصامتة)*",
         parse_mode='MarkdownV2'
     )
     
@@ -1086,13 +1101,3 @@ async def main():
     finally:
         await okx_adapter.close_session()
         await bot.session.close()
-
-
-if __name__ == "__main__":
-    import threading
-    threading.Thread(
-        target=lambda: uvicorn.run(app, host="0.0.0.0", port=PORT),
-        daemon=True
-    ).start()
-    
-    asyncio.run(main())
